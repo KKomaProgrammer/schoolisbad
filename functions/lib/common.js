@@ -124,8 +124,8 @@ async function hmac(secret, text) {
 }
 
 export function requireAdminConfig(env) {
-  if (!env.ADMIN_ID || !env.ADMIN_PASSWORD || !env.ADMIN_SESSION_SECRET) {
-    return "ADMIN_ID, ADMIN_PASSWORD, ADMIN_SESSION_SECRET 환경 변수를 Cloudflare Pages에 설정해야 합니다.";
+  if (!env.ADMIN_ID || !env.ADMIN_PW || !env.ADMIN_SESSION_SECRET) {
+    return "ADMIN_ID, ADMIN_PW, ADMIN_SESSION_SECRET 환경 변수를 Cloudflare Pages에 설정해야 합니다.";
   }
   return null;
 }
