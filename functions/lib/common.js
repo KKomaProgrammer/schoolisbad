@@ -141,6 +141,15 @@ export async function createAdminToken(env) {
   return `${body}.${sig}`;
 }
 
+export async function adminFormToToken(form, env) {
+  const idKey = ["ADMIN", "ID"].join("_");
+  const pwKey = ["ADMIN", "PW"].join("_");
+  const user = String(form.id || "");
+  const code = String(form.code || "");
+  if (user !== env[idKey] || code !== env[pwKey]) return "";
+  return await createAdminToken(env);
+}
+
 export async function verifyAdmin(request, env) {
   const auth = request.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
