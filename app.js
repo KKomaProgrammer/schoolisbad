@@ -66,9 +66,7 @@ async function api(path, options = {}) {
   const res = await fetch(path, { ...options, headers });
   const data = await res.json().catch(() => ({}));
 
-  if (data.blockedUntil) {
-    localStorage.setItem(STORAGE.blockedUntil, data.blockedUntil);
-  }
+  if (data.blockedUntil) localStorage.setItem(STORAGE.blockedUntil, data.blockedUntil);
   if (!res.ok) throw Object.assign(new Error(data.error || "요청 실패"), { data, status: res.status });
   return data;
 }
@@ -77,15 +75,15 @@ function layout(content, active = "home") {
   return `
     <header class="topbar">
       <div class="site-shell nav">
-        <a class="logo" href="/"><span class="logo-mark">!</span><span>학교는 바뀌어야 한다</span></a>
+        <a class="logo" href="/"><span class="logo-mark">!</span><span>교육을 의심하라</span></a>
         <nav class="nav-links">
-          <a class="nav-link ${active === "home" ? "active" : ""}" href="/">문제 제기</a>
-          <a class="nav-link ${active === "admin" ? "active" : ""}" href="/admin">관리자</a>
+          <a class="nav-link ${active === "home" ? "active" : ""}" href="/#write">기록하기</a>
+          <a class="nav-link" href="/#voices">증언 보기</a>
         </nav>
       </div>
     </header>
     ${content}
-    <footer class="footer site-shell">비난보다 기록, 침묵보다 변화.</footer>
+    <footer class="footer site-shell">순응하지 않는 기록이 교육을 바꾼다.</footer>
   `;
 }
 
@@ -95,39 +93,44 @@ function homeTemplate() {
   const title = edit ? edit.title : "";
   const body = edit ? edit.body : "";
   const category = edit ? edit.category : "사교육";
-  const submitText = edit ? "수정 저장" : "문제점 등록";
+  const submitText = edit ? "수정 저장" : "증언 등록";
 
   return layout(`
-    <section class="site-shell hero">
-      <div class="hero-card">
-        <div class="kicker">대한민국 교육 비판 아카이브</div>
-        <h1>아이들을 경쟁표로 만들지 말라.</h1>
-        <p class="lead">학교와 사교육이 아이들의 삶을 압박하는 현실을 기록하고 비판합니다. 진도, 등수, 입시, 과열된 사교육보다 먼저 지켜야 할 것은 학생의 안전과 삶입니다.</p>
+    <section class="site-shell hero protest-hero">
+      <div class="hero-card manifesto">
+        <div class="kicker">EDUCATION IS NOT A RANKING MACHINE</div>
+        <h1>아이들의 삶을 성적표로 압축하지 말라.</h1>
+        <p class="lead">우리는 학교와 사교육이 만든 과열 경쟁, 침묵을 강요하는 교실, 진도만 밀어붙이는 수업, 체험학습을 위축시키는 책임 회피를 기록한다. 이것은 푸념이 아니라 구조에 대한 고발이다.</p>
+        <div class="slogan-row">
+          <span>주입식 교육 중단</span>
+          <span>사교육 과열 해체</span>
+          <span>학생 안전 우선</span>
+        </div>
       </div>
-      <div class="hero-side hero-card">
-        <div class="point"><strong>사교육 과열</strong><span>가정 형편에 따라 기회가 달라지는 구조를 비판합니다.</span></div>
-        <div class="point"><strong>주입식·진도 중심</strong><span>생각보다 속도, 이해보다 암기를 강요하는 수업을 돌아봅니다.</span></div>
-        <div class="point"><strong>체험학습 위축</strong><span>안전 책임이 두려워 배움의 장이 줄어드는 문제를 기록합니다.</span></div>
+      <div class="hero-side hero-card protest-board">
+        <div class="point"><strong>성적은 인간의 가격표가 아니다</strong><span>학생을 등수와 점수로만 평가하는 문화는 배움이 아니라 분류다.</span></div>
+        <div class="point"><strong>교실은 암기 공장이 아니다</strong><span>질문, 토론, 실패할 권리가 사라진 수업은 교육의 이름을 빌린 통제다.</span></div>
+        <div class="point"><strong>사교육은 선택이 아니라 압박이 되었다</strong><span>불안을 팔아 경쟁을 키우는 구조를 더 이상 정상으로 부를 수 없다.</span></div>
       </div>
     </section>
 
-    <section class="site-shell section">
-      <div class="section-head"><h2>우리가 문제 삼는 것</h2><p>핵심만 짧고 선명하게</p></div>
+    <section class="site-shell section indictment">
+      <div class="section-head"><h2>우리가 규탄하는 구조</h2><p>서명보다 기록, 동원보다 증언</p></div>
       <div class="grid-4">
-        <article class="stat-card"><b>01</b><p>입시 경쟁이 학생의 마음 건강을 갉아먹는 구조</p></article>
-        <article class="stat-card"><b>02</b><p>학교보다 학원이 중심이 되는 사교육 의존</p></article>
-        <article class="stat-card"><b>03</b><p>질문과 토론보다 정답 암기에 치우친 교육</p></article>
-        <article class="stat-card"><b>04</b><p>현장 배움보다 민원과 책임 회피가 앞서는 분위기</p></article>
+        <article class="stat-card"><b>01</b><p>입시 경쟁을 이유로 학생의 불안과 고통을 방치하는 학교 문화</p></article>
+        <article class="stat-card"><b>02</b><p>공교육의 빈틈을 사교육 비용으로 메우게 만드는 불평등 구조</p></article>
+        <article class="stat-card"><b>03</b><p>이해보다 속도, 사고보다 암기, 성장보다 진도를 우선하는 수업</p></article>
+        <article class="stat-card"><b>04</b><p>현장 배움보다 민원과 책임 회피가 앞서 체험학습이 위축되는 현실</p></article>
       </div>
     </section>
 
     <section class="site-shell section" id="write">
-      <div class="section-head"><h2>${edit ? "내 글 수정" : "문제점 등록"}</h2><p>중립·부정으로 판별된 의견만 등록됩니다.</p></div>
-      <form class="panel" id="postForm">
+      <div class="section-head"><h2>${edit ? "내 증언 수정" : "문제 구조 기록"}</h2><p>중립·부정으로 판별된 비판적 기록만 저장됩니다.</p></div>
+      <form class="panel protest-form" id="postForm">
         <div class="form-grid">
           <div class="field">
             <label for="title">제목</label>
-            <input id="title" name="title" value="${escapeHtml(title)}" maxlength="80" placeholder="예: 진도만 나가는 수업의 문제" required />
+            <input id="title" name="title" value="${escapeHtml(title)}" maxlength="80" placeholder="예: 진도만 남고 배움은 사라진 교실" required />
           </div>
           <div class="field">
             <label for="category">분류</label>
@@ -136,8 +139,8 @@ function homeTemplate() {
         </div>
         <div class="field">
           <label for="body">내용</label>
-          <textarea id="body" name="body" maxlength="1200" placeholder="문제라고 느낀 점을 구체적으로 적어 주세요." required>${escapeHtml(body)}</textarea>
-          <div class="help">IP당 글은 최대 1개입니다. 서버에서 감정 검사를 통과해야 저장됩니다.</div>
+          <textarea id="body" name="body" maxlength="1200" placeholder="불편했던 구조, 강요된 경쟁, 사교육 압박, 주입식 수업, 체험학습 위축 등을 구체적으로 기록해 주세요." required>${escapeHtml(body)}</textarea>
+          <div class="help">IP당 글은 최대 1개입니다. 감정 검사는 프론트가 아니라 서버에서 수행됩니다.</div>
         </div>
         <div class="actions">
           <button class="btn" type="submit" ${blockedUntil ? "disabled" : ""}>${submitText}</button>
@@ -147,25 +150,25 @@ function homeTemplate() {
       </form>
     </section>
 
-    <section class="site-shell section">
-      <div class="section-head"><h2>관리자 선정 의견</h2><p>최대 4개</p></div>
+    <section class="site-shell section" id="voices">
+      <div class="section-head"><h2>관리자 선정 증언</h2><p>최대 4개</p></div>
       <div class="posts-grid">${renderPosts(state.featured, true)}</div>
     </section>
 
     <section class="site-shell section">
-      <div class="section-head"><h2>최근 등록된 문제 제기</h2><p>시간순 정렬</p></div>
+      <div class="section-head"><h2>최근 기록</h2><p>시간순 정렬</p></div>
       <div class="posts-grid">${renderPosts(state.posts, false)}</div>
     </section>
   `);
 }
 
 function renderPosts(posts, featuredOnly) {
-  if (!posts.length) return `<div class="empty">아직 등록된 글이 없습니다.</div>`;
+  if (!posts.length) return `<div class="empty">아직 등록된 기록이 없습니다.</div>`;
   return posts.map((post) => `
     <article class="post-card">
       <div class="post-top">
         <span class="badge">${escapeHtml(post.category || "기타")}</span>
-        ${post.featured ? `<span class="badge">선정</span>` : ""}
+        ${post.featured ? `<span class="badge badge-dark">선정 증언</span>` : ""}
       </div>
       <h3>${escapeHtml(post.title)}</h3>
       <p>${escapeHtml(post.body)}</p>
@@ -196,13 +199,18 @@ async function loadHome() {
 
 async function submitPost(event) {
   event.preventDefault();
+  const formEl = event.target;
   const blockedUntil = localBlockUntil();
   if (blockedUntil) {
     setMessage(blockText(blockedUntil), "error");
     return;
   }
+  if (!(formEl instanceof HTMLFormElement)) {
+    setMessage("폼을 찾지 못했습니다. 페이지를 새로고침해 주세요.", "error");
+    return;
+  }
 
-  const form = new FormData(event.currentTarget);
+  const form = new FormData(formEl);
   const payload = {
     title: form.get("title"),
     body: form.get("body"),
@@ -330,7 +338,12 @@ async function loadAdmin() {
 
 async function adminLogin(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const formEl = event.target;
+  if (!(formEl instanceof HTMLFormElement)) {
+    setMessage("폼을 찾지 못했습니다. 페이지를 새로고침해 주세요.", "error");
+    return;
+  }
+  const form = new FormData(formEl);
   try {
     const data = await api("/api/enter", {
       method: "POST",
