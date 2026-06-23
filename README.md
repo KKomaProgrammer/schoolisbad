@@ -1,6 +1,6 @@
 # 학교는 바뀌어야 한다
 
-대한민국 학교·사교육 문제를 기록하고 비판하는 Cloudflare Pages 사이트입니다.
+학교·사교육 문제를 비판적으로 기록하는 Cloudflare Pages 사이트입니다.
 
 ## 배포
 
@@ -21,33 +21,36 @@ ADMIN_PW=관리자PW
 ADMIN_SESSION_SECRET=긴랜덤문자열
 ```
 
-## 선택 환경 변수
+## 감정 검사
+
+`github-jademon/SentimentAI`의 Python 흐름을 Cloudflare Pages Functions에서 실행 가능한 JS 코드로 이식했습니다.
+
+원본 흐름:
 
 ```txt
-SENTIMENT_AI_URL=https://your-sentiment-api.example.com/predict
+Tokenizer → texts_to_sequences → pad_sequences → Embedding/LSTM/LSTM/Dense(sigmoid) → 0.5 기준 분류
 ```
 
-`github-jademon/SentimentAI`는 Python/TensorFlow 기반이라 Cloudflare Pages Functions에서 직접 실행할 수 없습니다. 그래서 서버 API는 먼저 `SENTIMENT_AI_URL`을 호출하고, 값이 없거나 실패하면 Cloudflare Edge에서 동작하는 JS 감정 검사기로 대체합니다.
+현재 백엔드 이식 파일:
 
-외부 SentimentAI API 응답 예시는 아래 중 하나면 됩니다.
-
-```json
-{ "label": "negative" }
+```txt
+functions/lib/sentiment.js
 ```
 
-```json
-{ "result": "부정" }
-```
+통과 가능 결과는 아래 파일 상단 변수에서 관리합니다.
 
-통과 가능 결과는 `functions/api/posts.js` 상단의 `PASS_SENTIMENT_LABELS` 변수에서 관리합니다. 기본값은 `neutral`, `negative`입니다.
+```txt
+functions/api/posts.js
+PASS_SENTIMENT_LABELS = ["neutral", "negative"]
+```
 
 ## 기능
 
-- 문제점 등록, 목록 표시
+- 비판적 문제 기록 등록
 - 글은 IP당 최대 1개
 - 본인 글 수정·삭제
 - 관리자 글 삭제
-- 관리자 선정 글 최대 4개
+- 관리자 선정 증언 최대 4개
 - 감정 검사 5회 미통과 시 IP 40분 차단
 - 차단 만료 시각을 서버 응답 기준으로 프론트 localStorage에 저장
 - 차단 중에는 프론트에서 API 요청 전 안내 문구 표시
@@ -56,8 +59,10 @@ SENTIMENT_AI_URL=https://your-sentiment-api.example.com/predict
 
 ## 관리자 페이지
 
+직접 접속합니다.
+
 ```txt
 /admin
 ```
 
-로그인은 서버의 `/api/enter`에서 처리하고, 이후 관리자 API는 Bearer 세션으로 보호됩니다.
+메인 화면에는 관리자 페이지 접속 버튼을 두지 않습니다.
