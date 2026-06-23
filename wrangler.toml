@@ -1,0 +1,12 @@
+name = "schoolisbad"
+compatibility_date = "2026-06-23"
+pages_build_output_dir = "."
+
+# Cloudflare Pages 대시보드에서 아래 바인딩 이름으로 KV를 연결하세요.
+# binding: SCHOOLISBAD_KV
+
+# 선택 환경 변수
+# ADMIN_ID
+# ADMIN_PW
+# ADMIN_SESSION_SECRET
+# SENTIMENT_AI_URL
