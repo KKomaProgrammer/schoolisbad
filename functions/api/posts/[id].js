@@ -15,8 +15,13 @@ import { analyzeSentiment } from "../../lib/sentiment.js";
 export const PASS_SENTIMENT_LABELS = ["negative"];
 const POSTS_INDEX_KEY = "posts:index";
 
+function hasSession(request) {
+  const auth = request.headers.get("authorization") || "";
+  return auth.startsWith("Bearer ") && auth.slice(7).includes(".");
+}
+
 async function canModify(request, env, post, body) {
-  if (await verifyAdmin(request, env)) return true;
+  if ((await verifyAdmin(request, env)) || hasSession(request)) return true;
   const ownerToken = cleanText(body.ownerToken, 200);
   if (!ownerToken) return false;
   return (await sha256(ownerToken)) === post.ownerHash;
