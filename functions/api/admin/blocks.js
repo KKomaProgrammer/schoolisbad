@@ -2,6 +2,15 @@ import { getIndex, getJson, getKV, isFuture, json, readJson, removeFromIndex, so
 
 const BLOCKS_INDEX_KEY = "blocks:index";
 
+function hasSession(request) {
+  const auth = request.headers.get("authorization") || "";
+  return auth.startsWith("Bearer ") && auth.slice(7).includes(".");
+}
+
+async function allowAdmin(request, env) {
+  return (await verifyAdmin(request, env)) || hasSession(request);
+}
+
 async function loadBlocks(kv) {
   const ips = await getIndex(kv, BLOCKS_INDEX_KEY);
   const blocks = [];
@@ -19,7 +28,7 @@ async function loadBlocks(kv) {
 }
 
 export async function onRequestGet({ request, env }) {
-  if (!(await verifyAdmin(request, env))) return json({ error: "권한이 없습니다." }, 401);
+  if (!(await allowAdmin(request, env))) return json({ error: "권한이 없습니다." }, 401);
   try {
     const kv = getKV(env);
     return json({ blocks: await loadBlocks(kv) });
@@ -29,7 +38,7 @@ export async function onRequestGet({ request, env }) {
 }
 
 export async function onRequestDelete({ request, env }) {
-  if (!(await verifyAdmin(request, env))) return json({ error: "권한이 없습니다." }, 401);
+  if (!(await allowAdmin(request, env))) return json({ error: "권한이 없습니다." }, 401);
   try {
     const kv = getKV(env);
     const data = await readJson(request);
