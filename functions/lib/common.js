@@ -101,6 +101,22 @@ export async function removeFromIndex(kv, key, value) {
   return next;
 }
 
+function pick(env, names) {
+  for (const name of names) {
+    const value = env?.[name];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function adminConfig(env) {
+  return {
+    id: pick(env, ["ADMIN_ID", "ADMIN_USER", "ADMIN_USERNAME"]),
+    pw: pick(env, ["ADMIN_PW", "ADMIN_PASSWORD", "ADMIN_PASS", "ADMIN_CODE"]),
+    secret: pick(env, ["ADMIN_SESSION_SECRET", "SESSION_SECRET", "JWT_SECRET"]),
+  };
+}
+
 function base64UrlEncode(text) {
   return btoa(text).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
@@ -124,39 +140,44 @@ async function hmac(secret, text) {
 }
 
 export function requireAdminConfig(env) {
-  if (!env.ADMIN_ID || !env.ADMIN_PW || !env.ADMIN_SESSION_SECRET) {
-    return "ADMIN_ID, ADMIN_PW, ADMIN_SESSION_SECRET 환경 변수를 Cloudflare Pages에 설정해야 합니다.";
-  }
+  const cfg = adminConfig(env);
+  const missing = [];
+  if (!cfg.id) missing.push("ADMIN_ID");
+  if (!cfg.pw) missing.push("ADMIN_PW");
+  if (!cfg.secret) missing.push("ADMIN_SESSION_SECRET");
+  if (missing.length) return `${missing.join(", ")} 환경 변수를 Cloudflare Pages에 설정해야 합니다.`;
   return null;
 }
 
 export async function createAdminToken(env) {
+  const cfg = adminConfig(env);
   const payload = {
     role: "admin",
     iat: Date.now(),
     exp: Date.now() + 1000 * 60 * 60 * 6,
   };
   const body = base64UrlEncode(JSON.stringify(payload));
-  const sig = await hmac(env.ADMIN_SESSION_SECRET, body);
+  const sig = await hmac(cfg.secret, body);
   return `${body}.${sig}`;
 }
 
 export async function adminFormToToken(form, env) {
-  const idKey = ["ADMIN", "ID"].join("_");
-  const pwKey = ["ADMIN", "PW"].join("_");
-  const user = String(form.id || "");
-  const code = String(form.code || "");
-  if (user !== env[idKey] || code !== env[pwKey]) return "";
+  const cfg = adminConfig(env);
+  const user = String(form.id || form.user || form.username || "").trim();
+  const code = String(form.code || form.pw || form.password || form.pass || "").trim();
+  if (!cfg.id || !cfg.pw || !cfg.secret) return "";
+  if (user !== cfg.id || code !== cfg.pw) return "";
   return await createAdminToken(env);
 }
 
 export async function verifyAdmin(request, env) {
+  const cfg = adminConfig(env);
   const auth = request.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token || !env.ADMIN_SESSION_SECRET) return false;
+  if (!token || !cfg.secret) return false;
   const [body, sig] = token.split(".");
   if (!body || !sig) return false;
-  const expected = await hmac(env.ADMIN_SESSION_SECRET, body);
+  const expected = await hmac(cfg.secret, body);
   if (expected !== sig) return false;
   try {
     const payload = JSON.parse(base64UrlDecode(body));
