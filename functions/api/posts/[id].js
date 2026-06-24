@@ -12,7 +12,7 @@ import {
 } from "../../lib/common.js";
 import { analyzeSentiment } from "../../lib/sentiment.js";
 
-export const PASS_SENTIMENT_LABELS = ["neutral", "negative"];
+export const PASS_SENTIMENT_LABELS = ["negative"];
 const POSTS_INDEX_KEY = "posts:index";
 
 async function canModify(request, env, post, body) {
@@ -56,20 +56,10 @@ export async function onRequestPut({ request, env, params }) {
 
     const sentiment = await analyzeSentiment(`${title}\n${body}`, env);
     if (!PASS_SENTIMENT_LABELS.includes(sentiment.label)) {
-      return json({
-        error: "수정한 문장도 중립 또는 부정으로 판별될 때만 저장됩니다.",
-        sentiment,
-      }, 422);
+      return json({ error: "부정 의견만 저장됩니다.", sentiment }, 422);
     }
 
-    const next = {
-      ...post,
-      title,
-      body,
-      category,
-      sentiment,
-      updatedAt: nowIso(),
-    };
+    const next = { ...post, title, body, category, sentiment, updatedAt: nowIso() };
     await putJson(kv, `post:${id}`, next);
     return json({ ok: true, post: publicPost(next) });
   } catch (error) {
@@ -89,10 +79,10 @@ export async function onRequestDelete({ request, env, params }) {
       return json({ error: "삭제 권한이 없습니다." }, 403);
     }
 
-    await putJson(kv, `post:${id}`, { ...post, deletedAt: nowIso(), featured: false });
+    const next = { ...post, deletedAt: nowIso(), updatedAt: nowIso() };
+    await putJson(kv, `post:${id}`, next);
     await removeFromIndex(kv, POSTS_INDEX_KEY, id);
     if (post.ip) await kv.delete(`ip-post:${post.ip}`);
-
     return json({ ok: true });
   } catch (error) {
     return json({ error: error.message || "삭제하지 못했습니다." }, 500);
