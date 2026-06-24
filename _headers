@@ -1,0 +1,8 @@
+/admin
+  Cache-Control: no-store
+/admin/*
+  Cache-Control: no-store
+/app.js
+  Cache-Control: no-store
+/ui-patch.js
+  Cache-Control: no-store
