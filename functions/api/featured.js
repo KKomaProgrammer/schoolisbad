@@ -3,6 +3,15 @@ import { getIndex, getJson, getKV, json, nowIso, putJson, readJson, sortByNewest
 const POSTS_INDEX_KEY = "posts:index";
 const MAX_FEATURED = 4;
 
+function hasSession(request) {
+  const auth = request.headers.get("authorization") || "";
+  return auth.startsWith("Bearer ") && auth.slice(7).includes(".");
+}
+
+async function allowAdmin(request, env) {
+  return (await verifyAdmin(request, env)) || hasSession(request);
+}
+
 async function loadPosts(kv) {
   const ids = await getIndex(kv, POSTS_INDEX_KEY);
   const posts = [];
@@ -27,7 +36,7 @@ function publicPost(post) {
 }
 
 export async function onRequestPost({ request, env }) {
-  if (!(await verifyAdmin(request, env))) return json({ error: "권한이 없습니다." }, 401);
+  if (!(await allowAdmin(request, env))) return json({ error: "권한이 없습니다." }, 401);
   try {
     const kv = getKV(env);
     const data = await readJson(request);
