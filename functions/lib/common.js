@@ -173,7 +173,9 @@ export async function adminFormToToken(form, env) {
 export async function verifyAdmin(request, env) {
   const cfg = adminConfig(env);
   const auth = request.headers.get("authorization") || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const token = auth.startsWith("Bearer ")
+    ? auth.slice(7).trim()
+    : String(request.headers.get("x-admin-token") || request.headers.get("x-schoolisbad-admin") || "").trim();
   if (!token || !cfg.secret) return false;
   const [body, sig] = token.split(".");
   if (!body || !sig) return false;
