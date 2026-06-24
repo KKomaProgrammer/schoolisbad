@@ -20,7 +20,7 @@ import {
 } from "../lib/common.js";
 import { analyzeSentiment } from "../lib/sentiment.js";
 
-export const PASS_SENTIMENT_LABELS = ["neutral", "negative"];
+export const PASS_SENTIMENT_LABELS = ["negative"];
 export const MAX_FAILED_SENTIMENT_COUNT = 5;
 export const BLOCK_MINUTES = 40;
 export const MAX_PUBLIC_POSTS = 100;
@@ -160,7 +160,7 @@ export async function onRequestPost({ request, env }) {
         }, 429);
       }
       return json({
-        error: "이 사이트에는 문제 제기·비판 의견만 등록할 수 있습니다. 문장이 중립 또는 부정으로 판별될 때만 등록됩니다.",
+        error: "부정 의견만 등록할 수 있습니다.",
         sentiment,
       }, 422);
     }
