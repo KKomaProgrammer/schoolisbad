@@ -1,5 +1,5 @@
 (() => {
-  const once = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
+  let queued = false;
 
   if (location.pathname.startsWith("/admin")) {
     const originalFetch = window.fetch.bind(window);
@@ -18,12 +18,14 @@
   }
 
   function replaceText() {
+    if (!document.body) return;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const list = [];
     while (walker.nextNode()) list.push(walker.currentNode);
 
     for (const node of list) {
-      let text = node.nodeValue;
+      const original = node.nodeValue || "";
+      let text = original;
       text = text.replaceAll("증언", "의견");
       text = text.replaceAll("시간순 정렬", "");
       text = text.replaceAll("중립·부정으로 판별된 비판적 기록만 저장됩니다.", "부정 의견만 저장됩니다.");
@@ -32,7 +34,7 @@
       text = text.replaceAll("아직 등록된 기록이 없습니다.", "아직 등록된 의견이 없습니다.");
       text = text.replaceAll("최근 기록", "최근 의견");
       text = text.replaceAll("기록만", "의견만");
-      node.nodeValue = text;
+      if (text !== original) node.nodeValue = text;
     }
   }
 
@@ -56,6 +58,15 @@
     rewriteIndictment();
   }
 
-  once(apply);
-  new MutationObserver(() => once(apply)).observe(document.documentElement, { childList: true, subtree: true });
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      queued = false;
+      apply();
+    }));
+  }
+
+  schedule();
+  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 })();
