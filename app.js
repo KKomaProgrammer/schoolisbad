@@ -201,10 +201,12 @@ async function submitPost(event) {
   event.preventDefault();
   const formEl = event.target;
   const blockedUntil = localBlockUntil();
+
   if (blockedUntil) {
     setMessage(blockText(blockedUntil), "error");
     return;
   }
+
   if (!(formEl instanceof HTMLFormElement)) {
     setMessage("폼을 찾지 못했습니다. 페이지를 새로고침해 주세요.", "error");
     return;
@@ -247,6 +249,7 @@ async function deleteOwnPost(id) {
 
 function adminTemplate() {
   const session = adminSession();
+
   if (!session) {
     return layout(`
       <section class="site-shell login-box">
@@ -315,42 +318,81 @@ function blockRow(block) {
 }
 
 async function loadAdmin() {
-  if (!adminSession()) {
+  const session = adminSession();
+
+  if (!session) {
     app.innerHTML = adminTemplate();
     return;
   }
+
+  const headers = {
+    authorization: `Bearer ${session}`,
+    "x-owner-token": ownerToken(),
+  };
+
+  state.posts = [];
+  state.featured = [];
+  state.blocks = [];
+
   try {
-    const headers = { authorization: `Bearer ${adminSession()}`, "x-owner-token": ownerToken() };
-    const [postsData, blocksData] = await Promise.all([
-      api("/api/posts", { headers }),
-      api("/api/admin/blocks", { headers }),
-    ]);
+    const postsData = await api("/api/posts", { headers });
     state.posts = postsData.posts || [];
     state.featured = postsData.featured || [];
+  } catch (error) {
+    state.message = `글 목록을 불러오지 못했습니다: ${error.message}`;
+    state.messageType = "error";
+
+    if (error.status === 401) {
+      localStorage.removeItem(STORAGE.adminSession);
+      app.innerHTML = adminTemplate();
+      return;
+    }
+  }
+
+  try {
+    const blocksData = await api("/api/admin/blocks", { headers });
     state.blocks = blocksData.blocks || [];
   } catch (error) {
-    state.message = error.message;
+    state.message = `로그인은 되었지만 IP 차단 목록을 불러오지 못했습니다: ${error.message}`;
     state.messageType = "error";
-    if (error.status === 401) localStorage.removeItem(STORAGE.adminSession);
   }
+
   app.innerHTML = adminTemplate();
 }
 
 async function adminLogin(event) {
   event.preventDefault();
+
   const formEl = event.target;
+
   if (!(formEl instanceof HTMLFormElement)) {
     setMessage("폼을 찾지 못했습니다. 페이지를 새로고침해 주세요.", "error");
     return;
   }
+
   const form = new FormData(formEl);
+
   try {
     const data = await api("/api/enter", {
       method: "POST",
-      body: JSON.stringify({ id: form.get("id"), code: form.get("code") }),
+      body: JSON.stringify({
+        id: form.get("id"),
+        code: form.get("code"),
+      }),
     });
-    localStorage.setItem(STORAGE.adminSession, data.value);
+
+    const token = data.value || data.token || data.session;
+
+    if (!data.ok || !token) {
+      throw new Error("로그인 토큰을 받지 못했습니다.");
+    }
+
+    localStorage.setItem(STORAGE.adminSession, token);
     state.message = "";
+    state.messageType = "";
+
+    app.innerHTML = adminTemplate();
+
     await loadAdmin();
   } catch (error) {
     setMessage(error.message, "error");
@@ -358,9 +400,13 @@ async function adminLogin(event) {
 }
 
 async function adminAction(path, body, method = "POST") {
+  const session = adminSession();
+
   return api(path, {
     method,
-    headers: { authorization: `Bearer ${adminSession()}` },
+    headers: {
+      authorization: `Bearer ${session}`,
+    },
     body: JSON.stringify(body || {}),
   });
 }
@@ -368,31 +414,42 @@ async function adminAction(path, body, method = "POST") {
 async function handleClick(event) {
   const button = event.target.closest("[data-action]");
   if (!button) return;
+
   const action = button.dataset.action;
 
   if (action === "cancel-edit") {
     state.editing = null;
     await loadHome();
   }
+
   if (action === "edit") {
     state.editing = state.posts.find((post) => post.id === button.dataset.id) || null;
     app.innerHTML = homeTemplate();
     document.querySelector("#write")?.scrollIntoView({ behavior: "smooth" });
   }
-  if (action === "delete") await deleteOwnPost(button.dataset.id);
+
+  if (action === "delete") {
+    await deleteOwnPost(button.dataset.id);
+  }
+
   if (action === "logout") {
     localStorage.removeItem(STORAGE.adminSession);
     state.message = "";
     await loadAdmin();
   }
+
   if (action === "feature") {
     try {
-      await adminAction("/api/featured", { postId: button.dataset.id, featured: button.dataset.featured === "true" });
+      await adminAction("/api/featured", {
+        postId: button.dataset.id,
+        featured: button.dataset.featured === "true",
+      });
       await loadAdmin();
     } catch (error) {
       setMessage(error.message, "error");
     }
   }
+
   if (action === "admin-delete") {
     try {
       await adminAction(`/api/posts/${button.dataset.id}`, {}, "DELETE");
@@ -401,6 +458,7 @@ async function handleClick(event) {
       setMessage(error.message, "error");
     }
   }
+
   if (action === "unblock") {
     try {
       await adminAction("/api/admin/blocks", { ip: button.dataset.ip }, "DELETE");
@@ -411,11 +469,43 @@ async function handleClick(event) {
   }
 }
 
-app.addEventListener("submit", (event) => {
-  if (event.target.id === "postForm") submitPost(event);
-  if (event.target.id === "adminLoginForm") adminLogin(event);
-});
-app.addEventListener("click", handleClick);
+document.addEventListener("submit", (event) => {
+  const form = event.target;
+
+  if (!(form instanceof HTMLFormElement)) return;
+
+  if (form.id === "postForm") {
+    submitPost(event);
+    return;
+  }
+
+  if (form.id === "adminLoginForm") {
+    adminLogin(event);
+    return;
+  }
+}, true);
+
+document.addEventListener("click", (event) => {
+  const loginButton = event.target.closest?.("#adminLoginForm button[type='submit'], #adminLoginForm button:not([type])");
+
+  if (loginButton) {
+    const form = loginButton.closest("form");
+
+    if (form?.id === "adminLoginForm") {
+      event.preventDefault();
+
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      } else {
+        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      }
+
+      return;
+    }
+  }
+
+  handleClick(event);
+}, true);
 
 if (location.pathname.startsWith("/admin")) loadAdmin();
 else loadHome();
