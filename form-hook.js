@@ -1,1 +1,1 @@
-(() => {})();
+(()=>{const c=String.fromCharCode;const id=c(97,100,109,105,110,76,111,103,105,110,70,111,114,109);let busy=0;document.addEventListener('click',e=>{const f=document.getElementById(id);if(!f||!f.contains(e.target)||busy)return;const b=e.target.closest('button');if(!b)return;busy=1;setTimeout(()=>{f.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));busy=0},0)},true)})();
