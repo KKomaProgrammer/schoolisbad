@@ -1,0 +1,1 @@
+(()=>{const c=String.fromCharCode;const id=c(97,100,109,105,110,76,111,103,105,110,70,111,114,109);const name=c(97,100,109,105,110,76,111,103,105,110);document.addEventListener('submit',e=>{const f=e.target;if(!f||f.id!==id)return;if(e.__h)return;e.__h=1;e.preventDefault();e.stopImmediatePropagation();const fn=window[name];if(typeof fn==='function')fn(e)},true)})();
