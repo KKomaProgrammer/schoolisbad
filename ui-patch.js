@@ -1,6 +1,22 @@
 (() => {
   const once = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
 
+  if (location.pathname.startsWith("/admin")) {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input && input.url ? input.url : "";
+      if (!url.includes("/api/admin/blocks")) return originalFetch(input, init);
+      try {
+        const response = await originalFetch(input, init);
+        if (response.ok) return response;
+      } catch (error) {}
+      return new Response(JSON.stringify({ blocks: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    };
+  }
+
   function replaceText() {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const list = [];
