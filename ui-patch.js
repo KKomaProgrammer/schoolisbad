@@ -1,5 +1,15 @@
 (() => {
   let queued = false;
+  const staleBlockKey = "schoolisbad_blocked_until";
+
+  function clearStaleBlock() {
+    try { localStorage.removeItem(staleBlockKey); } catch (error) {}
+  }
+
+  clearStaleBlock();
+  document.addEventListener("click", clearStaleBlock, true);
+  document.addEventListener("submit", clearStaleBlock, true);
+  setInterval(clearStaleBlock, 1500);
 
   if (location.pathname.startsWith("/admin")) {
     const originalFetch = window.fetch.bind(window);
@@ -54,6 +64,7 @@
   }
 
   function apply() {
+    clearStaleBlock();
     replaceText();
     rewriteIndictment();
   }
