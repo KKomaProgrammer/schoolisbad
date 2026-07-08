@@ -28,12 +28,81 @@ export const MAX_PUBLIC_POSTS = 100;
 const POSTS_INDEX_KEY = "posts:index";
 const BLOCKS_INDEX_KEY = "blocks:index";
 
+const POLITICAL_PATTERNS = [
+  { key: "party", re: /정당|여당|야당|보수|진보|좌파|우파|국민의힘|민주당|정치세력|당대표/g },
+  { key: "election", re: /선거|대선|총선|지방선거|투표|공천|후보|유세/g },
+  { key: "office", re: /대통령|국회의원|장관|시장|도지사|정부|국회|청와대|용산/g },
+  { key: "conflict", re: /탄핵|특검|검찰|정권|정쟁|정치공방/g },
+];
+
+function normalizedText(text) {
+  return String(text || "").normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function detectPoliticalTopic(text) {
+  const body = normalizedText(text);
+  for (const item of POLITICAL_PATTERNS) {
+    item.re.lastIndex = 0;
+    if (item.re.test(body)) return item.key;
+  }
+  return "";
+}
+
+function politicalMessage(kind) {
+  const messages = {
+    party: [
+      "여긴 정당 응원석이 아니라 교육 비판 게시판이에요. 당 색깔은 잠시 가방에 넣고 와주세요.",
+      "정당 배틀은 다른 경기장으로! 여기서는 학교와 사교육 문제만 다룹니다.",
+    ],
+    election: [
+      "투표함은 잠시 닫고, 교실 이야기부터 해주세요. 선거 이야기는 등록되지 않습니다.",
+      "선거 유세차가 게시판 앞을 지나갔습니다. 교육 문제로 다시 써주세요.",
+    ],
+    office: [
+      "정치 뉴스룸으로 연결될 뻔했어요. 여긴 학교·사교육 문제 전용 게시판입니다.",
+      "정부·국회 이야기는 잠시 내려놓고, 교실과 학원 이야기로 돌아와 주세요.",
+    ],
+    conflict: [
+      "정쟁 드럼 소리가 너무 큽니다. 이 게시판은 교육 문제만 받습니다.",
+      "정치 공방은 차단! 학교 수업, 사교육, 입시 문제로 다시 적어주세요.",
+    ],
+  };
+  const list = messages[kind] || ["정치 주제는 이 게시판의 과목이 아닙니다. 교육 문제로 다시 작성해 주세요."];
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function sentimentMessage(title, body, sentiment) {
+  const text = `${title} ${body}`;
+  const compact = text.replace(/\s+/g, "");
+  const matched = Array.isArray(sentiment?.matchedTerms) ? sentiment.matchedTerms.map((x) => String(x?.[0] || "")).join(" ") : "";
+
+  if (/재미없|재밌지않|안재밌|안재미/.test(compact) || /재미없음/.test(matched)) {
+    return "재미없다는 마음은 접수됐지만, 교육 문제 비판으로 조금만 더 구체화해 주세요. 게시판 심사위원이 팝콘 들고 기다립니다.";
+  }
+  if (/학원|사교육|선행/.test(text)) {
+    return "학원 이야기는 좋은데, 아직 비판의 칼날이 무뎌요. 사교육 의존 문제가 드러나게 한 번 더 찔러주세요.";
+  }
+  if (/학교|교실|선생|수업|진도/.test(text)) {
+    return "학교 이야기는 맞는데, 지금 문장은 아직 종이비행기 수준이에요. 진도·수업·책임 문제를 더 분명히 써주세요.";
+  }
+  if (/입시|성적|시험|수능|내신/.test(text)) {
+    return "입시 이야기는 감지됐지만 비판 신호가 약합니다. 점수 경쟁의 문제를 더 또렷하게 적어주세요.";
+  }
+  if (/체험학습|현장학습|수학여행/.test(text)) {
+    return "체험학습 이야기는 보였는데, 왜 문제인지가 살짝 숨었습니다. 행정 부담이나 책임 회피를 더 콕 집어주세요.";
+  }
+  if (sentiment?.label === "positive") {
+    return "칭찬 버튼을 누르려다 길을 잃었습니다. 이곳은 교육 문제 비판 게시판이라 부정 의견만 등록됩니다.";
+  }
+  return "비판 에너지가 아직 충전 중입니다. 학교·사교육·입시 문제를 더 구체적으로 적어주세요.";
+}
+
 async function readPost(kv, id) {
   return await getJson(kv, `post:${id}`, null);
 }
 
 async function publicPost(post, ownerHash, isAdmin) {
-  return {
+  const item = {
     id: post.id,
     title: post.title,
     body: post.body,
@@ -44,6 +113,11 @@ async function publicPost(post, ownerHash, isAdmin) {
     featuredAt: post.featuredAt || null,
     canEdit: Boolean(isAdmin || (ownerHash && ownerHash === post.ownerHash)),
   };
+  if (isAdmin) {
+    item.ip = post.ip || "";
+    item.maskedIp = post.maskedIp || maskIp(post.ip || "");
+  }
+  return item;
 }
 
 async function listPosts(kv, request, env) {
@@ -123,7 +197,7 @@ export async function onRequestPost({ request, env }) {
 
     if (activeBlock) {
       return json({
-        error: "잠시 등록이 제한되었습니다.",
+        error: `앗, 아직 쉬는 시간입니다. ${formatDate(activeBlock.blockedUntil)} 이후 다시 도전해 주세요.`,
         blocked: true,
         blockedUntil: activeBlock.blockedUntil,
       }, 429);
@@ -139,6 +213,11 @@ export async function onRequestPost({ request, env }) {
     if (title.length < 2) return json({ error: "제목은 2자 이상 입력해 주세요." }, 400);
     if (body.length < 10) return json({ error: "내용은 10자 이상 입력해 주세요." }, 400);
 
+    const politicalKind = detectPoliticalTopic(`${title}\n${body}`);
+    if (politicalKind) {
+      return json({ error: politicalMessage(politicalKind), blocked: true, blockType: "political" }, 422);
+    }
+
     const existingPostId = await kv.get(`ip-post:${ip}`);
     if (existingPostId) {
       const existing = await readPost(kv, existingPostId);
@@ -153,14 +232,14 @@ export async function onRequestPost({ request, env }) {
       const newBlock = await recordFailedSentiment(kv, ip, sentiment);
       if (newBlock) {
         return json({
-          error: "감정 검사에 5회 이상 통과하지 못해 40분 동안 등록이 제한되었습니다.",
+          error: "비판 신호를 다섯 번 놓쳤습니다. 게시판 심판이 40분 작전타임을 선언했어요.",
           blocked: true,
           blockedUntil: newBlock.blockedUntil,
           sentiment,
         }, 429);
       }
       return json({
-        error: "부정 의견만 등록할 수 있습니다.",
+        error: sentimentMessage(title, body, sentiment),
         sentiment,
       }, 422);
     }
