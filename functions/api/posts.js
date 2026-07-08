@@ -29,6 +29,8 @@ export const MAX_PUBLIC_POSTS = 100;
 
 const POSTS_INDEX_KEY = "posts:index";
 const BLOCKS_INDEX_KEY = "blocks:index";
+const SITE_SETTINGS_KEY = "site:settings";
+const DEFAULT_MAX_POSTS_PER_IP = 1;
 
 const POLITICAL_PATTERNS = [
   { key: "party", re: /정당|여당|야당|보수|진보|좌파|우파|국민의힘|민주당|정치세력|당대표/g },
@@ -50,9 +52,7 @@ function detectPoliticalTopic(text) {
   return "";
 }
 
-function pick(list) {
-  return list[Math.floor(Math.random() * list.length)];
-}
+function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
 
 function politicalMessage(kind) {
   const messages = {
@@ -170,6 +170,22 @@ async function getActiveBlock(kv, ip) {
   return null;
 }
 
+async function maxPostsPerIp(kv) {
+  const settings = await getJson(kv, SITE_SETTINGS_KEY, null);
+  const n = Number(settings?.maxPostsPerIp ?? DEFAULT_MAX_POSTS_PER_IP);
+  return Number.isFinite(n) ? Math.max(1, Math.min(50, Math.floor(n))) : DEFAULT_MAX_POSTS_PER_IP;
+}
+
+async function countPostsByIp(kv, ip) {
+  const index = await getIndex(kv, POSTS_INDEX_KEY);
+  let count = 0;
+  for (const id of index) {
+    const post = await readPost(kv, id);
+    if (post && !post.deletedAt && post.ip === ip) count++;
+  }
+  return count;
+}
+
 async function recordFailedSentiment(kv, ip, sentiment) {
   const key = `fail:${ip}`;
   const current = await getJson(kv, key, { count: 0 });
@@ -177,7 +193,7 @@ async function recordFailedSentiment(kv, ip, sentiment) {
   await putJson(kv, key, next, { expirationTtl: 60 * 60 });
   if (next.count >= MAX_FAILED_SENTIMENT_COUNT) {
     const blockedUntil = addMinutes(new Date(), BLOCK_MINUTES);
-    const block = { ip, maskedIp: maskIp(ip), reason: "감정 검사 5회 미통과", failCount: next.count, blockedAt: nowIso(), blockedUntil, lastSentiment: sentiment };
+    const block = { ip, maskedIp: maskIp(ip), reason: "감정 검사 5회 미통과", failCount: next.count, blockedAt: nowIso(), blockedUntil, blockMinutes: BLOCK_MINUTES, lastSentiment: sentiment };
     await putJson(kv, `block:${ip}`, block, { expirationTtl: BLOCK_MINUTES * 60 + 3600 });
     await addToIndex(kv, BLOCKS_INDEX_KEY, ip);
     return block;
@@ -264,11 +280,10 @@ export async function onRequestPost({ request, env }) {
     const politicalKind = detectPoliticalTopic(fullText);
     if (politicalKind) return json({ error: politicalMessage(politicalKind), blocked: true, blockType: "political", politicalKind }, 422);
 
-    const existingPostId = await kv.get(`ip-post:${ip}`);
-    if (existingPostId) {
-      const existing = await readPost(kv, existingPostId);
-      if (existing && !existing.deletedAt) return json({ error: "IP당 글은 최대 1개만 등록할 수 있습니다. 기존 글을 수정하거나 삭제해 주세요." }, 409);
-      await kv.delete(`ip-post:${ip}`);
+    const maxByIp = await maxPostsPerIp(kv);
+    const ipPostCount = await countPostsByIp(kv, ip);
+    if (ipPostCount >= maxByIp) {
+      return json({ error: `IP당 글은 최대 ${maxByIp}개까지 등록할 수 있습니다. 기존 글을 수정하거나 삭제해 주세요.`, maxPostsPerIp: maxByIp, ipPostCount }, 409);
     }
 
     const sentiment = await analyzeSentiment(fullText, env);
