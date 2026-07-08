@@ -150,36 +150,16 @@ function neutralMessage(title, body, sentiment) {
   const text = `${title} ${body}`;
   const topic = topicOf(text);
   const matched = Array.isArray(sentiment?.matchedTerms) ? sentiment.matchedTerms.map((x) => String(x?.[0] || "")).join(" ") : "";
-
   if (/재미없|재밌지않|안재밌|안재미/.test(text.replace(/\s+/g, "")) || /재미없음/.test(matched)) {
     return "재미없다는 신호는 잡혔지만 비판 문장이 아직 짧습니다. 왜 재미없고, 그게 학교·사교육 구조와 어떻게 연결되는지 더 적어주세요.";
   }
-
   const messages = {
-    academy: [
-      "학원 이야기는 보였지만 아직 설명문 모드입니다. 사교육 의존이 왜 문제인지 더 날카롭게 적어주세요.",
-      "학원 키워드는 입장했지만 비판은 지각했습니다. 선행학습 의존 문제를 더 분명히 써주세요.",
-    ],
-    school: [
-      "학교 이야기는 맞는데 아직 회의록처럼 중립적입니다. 진도, 수업, 책임 문제를 비판 문장으로 바꿔주세요.",
-      "교실은 등장했지만 문제 제기가 약합니다. ‘다 이해했지?’ 뒤의 침묵을 더 세게 적어주세요.",
-    ],
-    exam: [
-      "입시 키워드는 감지됐지만 비판 신호가 약합니다. 성적 경쟁의 부작용을 더 또렷하게 적어주세요.",
-      "시험 이야기가 너무 얌전합니다. 점수 중심 구조가 왜 학생을 밀어내는지 적어주세요.",
-    ],
-    field: [
-      "체험학습 이야기는 보였지만 아직 현장감이 부족합니다. 위축되는 이유와 책임 회피 문제를 콕 집어주세요.",
-      "소풍 안내문처럼 보입니다. 체험학습이 왜 막히는지 비판을 더해 주세요.",
-    ],
-    math: [
-      "수학 이야기는 보였지만 아직 칠판이 조용합니다. 수포자가 생기는 구조를 비판해 주세요.",
-      "수학 키워드는 잡혔지만 문제 제기가 약합니다. 진도와 선행의 압박을 더 분명히 써주세요.",
-    ],
-    general: [
-      "중립 기어가 들어갔습니다. 이 게시판은 문제 제기가 필요하니 교육의 어떤 점이 잘못됐는지 더 분명히 적어주세요.",
-      "글이 너무 무표정합니다. 학교·사교육·입시 문제 중 무엇을 비판하는지 선명하게 적어주세요.",
-    ],
+    academy: ["학원 이야기는 보였지만 아직 설명문 모드입니다. 사교육 의존이 왜 문제인지 더 날카롭게 적어주세요.", "학원 키워드는 입장했지만 비판은 지각했습니다. 선행학습 의존 문제를 더 분명히 써주세요."],
+    school: ["학교 이야기는 맞는데 아직 회의록처럼 중립적입니다. 진도, 수업, 책임 문제를 비판 문장으로 바꿔주세요.", "교실은 등장했지만 문제 제기가 약합니다. ‘다 이해했지?’ 뒤의 침묵을 더 세게 적어주세요."],
+    exam: ["입시 키워드는 감지됐지만 비판 신호가 약합니다. 성적 경쟁의 부작용을 더 또렷하게 적어주세요.", "시험 이야기가 너무 얌전합니다. 점수 중심 구조가 왜 학생을 밀어내는지 적어주세요."],
+    field: ["체험학습 이야기는 보였지만 아직 현장감이 부족합니다. 위축되는 이유와 책임 회피 문제를 콕 집어주세요.", "소풍 안내문처럼 보입니다. 체험학습이 왜 막히는지 비판을 더해 주세요."],
+    math: ["수학 이야기는 보였지만 아직 칠판이 조용합니다. 수포자가 생기는 구조를 비판해 주세요.", "수학 키워드는 잡혔지만 문제 제기가 약합니다. 진도와 선행의 압박을 더 분명히 써주세요."],
+    general: ["중립 기어가 들어갔습니다. 이 게시판은 문제 제기가 필요하니 교육의 어떤 점이 잘못됐는지 더 분명히 적어주세요.", "글이 너무 무표정합니다. 학교·사교육·입시 문제 중 무엇을 비판하는지 선명하게 적어주세요."],
   };
   return pick(messages[topic] || messages.general);
 }
@@ -219,18 +199,12 @@ async function listPosts(kv, request, env) {
   const ownerHash = ownerToken ? await sha256(ownerToken) : "";
   const isAdmin = await verifyAdmin(request, env);
   const posts = [];
-
   for (const id of index.slice(0, MAX_PUBLIC_POSTS * 2)) {
     const post = await readPost(kv, id);
     if (post && !post.deletedAt) posts.push(await publicPost(post, ownerHash, isAdmin));
   }
-
   const sorted = sortByNewest(posts).slice(0, MAX_PUBLIC_POSTS);
-  const featured = sorted
-    .filter((post) => post.featured)
-    .sort((a, b) => new Date(b.featuredAt || b.createdAt) - new Date(a.featuredAt || a.createdAt))
-    .slice(0, 4);
-
+  const featured = sorted.filter((post) => post.featured).sort((a, b) => new Date(b.featuredAt || b.createdAt) - new Date(a.featuredAt || a.createdAt)).slice(0, 4);
   return { posts: sorted, featured };
 }
 
@@ -246,31 +220,53 @@ async function getActiveBlock(kv, ip) {
 async function recordFailedSentiment(kv, ip, sentiment) {
   const key = `fail:${ip}`;
   const current = await getJson(kv, key, { count: 0 });
-  const next = {
-    count: Number(current.count || 0) + 1,
-    lastFailedAt: nowIso(),
-    lastSentiment: sentiment,
-  };
-
+  const next = { count: Number(current.count || 0) + 1, lastFailedAt: nowIso(), lastSentiment: sentiment };
   await putJson(kv, key, next, { expirationTtl: 60 * 60 });
-
   if (next.count >= MAX_FAILED_SENTIMENT_COUNT) {
     const blockedUntil = addMinutes(new Date(), BLOCK_MINUTES);
-    const block = {
-      ip,
-      maskedIp: maskIp(ip),
-      reason: "감정 검사 5회 미통과",
-      failCount: next.count,
-      blockedAt: nowIso(),
-      blockedUntil,
-      lastSentiment: sentiment,
-    };
+    const block = { ip, maskedIp: maskIp(ip), reason: "감정 검사 5회 미통과", failCount: next.count, blockedAt: nowIso(), blockedUntil, lastSentiment: sentiment };
     await putJson(kv, `block:${ip}`, block, { expirationTtl: BLOCK_MINUTES * 60 + 3600 });
     await addToIndex(kv, BLOCKS_INDEX_KEY, ip);
     return block;
   }
-
   return null;
+}
+
+function blockSettingFor(setting, label) {
+  if (!setting || setting.enabled === false) return null;
+  if (Number(setting.any?.count || 0) > 0) return { scope: "any", count: Number(setting.any.count), minutes: Number(setting.any.minutes || 40) };
+  const item = setting[label];
+  if (Number(item?.count || 0) > 0) return { scope: label, count: Number(item.count), minutes: Number(item.minutes || 40) };
+  return null;
+}
+
+async function applyPoliticianBlockSetting(kv, ip, hit, label, sentiment) {
+  const setting = await getJson(kv, `politician-block:${hit.rule.id}`, null);
+  const config = blockSettingFor(setting, label);
+  if (!config) return null;
+  const key = `politician-count:${ip}:${hit.rule.id}:${config.scope}`;
+  const current = await getJson(kv, key, { count: 0 });
+  const next = { count: Number(current.count || 0) + 1, label, updatedAt: nowIso(), target: hit.name };
+  await putJson(kv, key, next, { expirationTtl: 60 * 60 });
+  if (next.count < config.count) return { blocked: false, count: next.count, config };
+  const minutes = Math.max(1, Math.min(10080, Number(config.minutes || 40)));
+  const blockedUntil = addMinutes(new Date(), minutes);
+  const block = {
+    ip,
+    maskedIp: maskIp(ip),
+    reason: `정치인 규칙 ${hit.rule.name} ${config.scope} ${next.count}회`,
+    failCount: next.count,
+    blockedAt: nowIso(),
+    blockedUntil,
+    politicianRuleId: hit.rule.id,
+    politicianName: hit.name,
+    politicianScope: config.scope,
+    lastSentiment: sentiment,
+  };
+  await putJson(kv, `block:${ip}`, block, { expirationTtl: minutes * 60 + 3600 });
+  await addToIndex(kv, BLOCKS_INDEX_KEY, ip);
+  await kv.delete(key);
+  return { blocked: true, count: next.count, config, block };
 }
 
 export async function onRequestGet({ request, env }) {
@@ -287,13 +283,8 @@ export async function onRequestPost({ request, env }) {
     const kv = getKV(env);
     const ip = getClientIp(request);
     const activeBlock = await getActiveBlock(kv, ip);
-
     if (activeBlock) {
-      return json({
-        error: `앗, 아직 쉬는 시간입니다. ${friendlyDate(activeBlock.blockedUntil)} 이후 다시 도전해 주세요.`,
-        blocked: true,
-        blockedUntil: activeBlock.blockedUntil,
-      }, 429);
+      return json({ error: `앗, 아직 쉬는 시간입니다. ${friendlyDate(activeBlock.blockedUntil)} 이후 다시 도전해 주세요.`, blocked: true, blockedUntil: activeBlock.blockedUntil }, 429);
     }
 
     const data = await readJson(request);
@@ -314,15 +305,11 @@ export async function onRequestPost({ request, env }) {
       const sentiment = await analyzeSentiment(fullText, env);
       const label = sentiment?.label === "positive" || sentiment?.label === "negative" ? sentiment.label : "neutral";
       const message = customHit ? messageForPoliticianRule(customHit, label) : defaultPoliticianMessage(politicianHit, label);
-      return json({
-        error: message,
-        blocked: true,
-        blockType: "politician",
-        target: politicianHit.name,
-        sentiment,
-        sentimentLabel: label,
-        editableRule: Boolean(customHit),
-      }, 422);
+      const blockResult = customHit ? await applyPoliticianBlockSetting(kv, ip, customHit, label, sentiment) : null;
+      if (blockResult?.blocked) {
+        return json({ error: `${message} ${blockResult.config.minutes}분 차단까지 같이 들어갔습니다.`, blocked: true, blockType: "politician", target: politicianHit.name, sentiment, sentimentLabel: label, blockedUntil: blockResult.block.blockedUntil, consecutiveCount: blockResult.count }, 429);
+      }
+      return json({ error: message, blocked: true, blockType: "politician", target: politicianHit.name, sentiment, sentimentLabel: label, editableRule: Boolean(customHit), consecutiveCount: blockResult?.count || 0, blockThreshold: blockResult?.config?.count || 0 }, 422);
     }
 
     const politicalKind = detectPoliticalTopic(fullText);
@@ -333,51 +320,24 @@ export async function onRequestPost({ request, env }) {
     const existingPostId = await kv.get(`ip-post:${ip}`);
     if (existingPostId) {
       const existing = await readPost(kv, existingPostId);
-      if (existing && !existing.deletedAt) {
-        return json({ error: "IP당 글은 최대 1개만 등록할 수 있습니다. 기존 글을 수정하거나 삭제해 주세요." }, 409);
-      }
+      if (existing && !existing.deletedAt) return json({ error: "IP당 글은 최대 1개만 등록할 수 있습니다. 기존 글을 수정하거나 삭제해 주세요." }, 409);
       await kv.delete(`ip-post:${ip}`);
     }
 
     const sentiment = await analyzeSentiment(fullText, env);
     if (!PASS_SENTIMENT_LABELS.includes(sentiment.label)) {
       const newBlock = await recordFailedSentiment(kv, ip, sentiment);
-      if (newBlock) {
-        return json({
-          error: "비판 신호를 다섯 번 놓쳤습니다. 게시판 심판이 40분 작전타임을 선언했어요.",
-          blocked: true,
-          blockedUntil: newBlock.blockedUntil,
-          sentiment,
-        }, 429);
-      }
-      return json({
-        error: sentimentMessage(title, body, sentiment),
-        sentiment,
-        blockType: sentiment.label === "positive" ? "positive" : "neutral",
-      }, 422);
+      if (newBlock) return json({ error: "비판 신호를 다섯 번 놓쳤습니다. 게시판 심판이 40분 작전타임을 선언했어요.", blocked: true, blockedUntil: newBlock.blockedUntil, sentiment }, 429);
+      return json({ error: sentimentMessage(title, body, sentiment), sentiment, blockType: sentiment.label === "positive" ? "positive" : "neutral" }, 422);
     }
 
     const id = randomId("post");
     const ownerHash = await sha256(ownerToken);
-    const post = {
-      id,
-      title,
-      body,
-      category,
-      ownerHash,
-      ip,
-      maskedIp: maskIp(ip),
-      sentiment,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-      featured: false,
-    };
-
+    const post = { id, title, body, category, ownerHash, ip, maskedIp: maskIp(ip), sentiment, createdAt: nowIso(), updatedAt: nowIso(), featured: false };
     await putJson(kv, `post:${id}`, post);
     await addToIndex(kv, POSTS_INDEX_KEY, id);
     await kv.put(`ip-post:${ip}`, id);
     await kv.delete(`fail:${ip}`);
-
     return json({ ok: true, post: await publicPost(post, ownerHash, false) }, 201);
   } catch (error) {
     return json({ error: error.message || "등록하지 못했습니다." }, 500);
