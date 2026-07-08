@@ -1,5 +1,7 @@
 import { getKV, json, readJson, verifyAdmin } from "../../lib/common.js";
-import { cleanPoliticianName, POLITICIAN_RULES_INDEX_KEY } from "../../lib/politician-rules.js";
+import { cleanPoliticianName } from "../../lib/politician-rules.js";
+
+const INDEX_KEY = "politician-blocks:index";
 
 function hasSession(request) {
   const auth = request.headers.get("authorization") || "";
@@ -25,9 +27,11 @@ function option(data, key) {
 
 function normalize(data) {
   const id = cleanPoliticianName(data.id || data.name);
+  const name = String(data.name || data.id || "").normalize("NFKC").trim().slice(0, 40) || id;
   if (!id) throw new Error("정치인 이름이 없습니다.");
   return {
     id,
+    name,
     enabled: data.enabled !== false,
     any: option(data, "any"),
     positive: option(data, "positive"),
@@ -37,10 +41,19 @@ function normalize(data) {
   };
 }
 
+async function readIndex(kv) {
+  const ids = await kv.get(INDEX_KEY, "json").catch(() => []);
+  return Array.isArray(ids) ? ids : [];
+}
+
+async function writeIndex(kv, ids) {
+  await kv.put(INDEX_KEY, JSON.stringify([...new Set(ids.map(String).filter(Boolean))]));
+}
+
 async function readAll(kv) {
-  const ids = await kv.get(POLITICIAN_RULES_INDEX_KEY, "json").catch(() => []);
+  const ids = await readIndex(kv);
   const result = [];
-  for (const id of Array.isArray(ids) ? ids : []) {
+  for (const id of ids) {
     const setting = await kv.get(`politician-block:${id}`, "json").catch(() => null);
     if (setting) result.push(setting);
   }
@@ -63,6 +76,9 @@ export async function onRequestPost({ request, env }) {
     const kv = getKV(env);
     const data = normalize(await readJson(request));
     await kv.put(`politician-block:${data.id}`, JSON.stringify(data));
+    const ids = await readIndex(kv);
+    if (!ids.includes(data.id)) ids.unshift(data.id);
+    await writeIndex(kv, ids);
     return json({ ok: true, setting: data, settings: await readAll(kv) });
   } catch (error) {
     return json({ error: error.message || "차단 설정을 저장하지 못했습니다." }, 500);
@@ -77,6 +93,7 @@ export async function onRequestDelete({ request, env }) {
     const id = cleanPoliticianName(data.id || data.name);
     if (!id) return json({ error: "삭제할 정치인 이름이 없습니다." }, 400);
     await kv.delete(`politician-block:${id}`);
+    await writeIndex(kv, (await readIndex(kv)).filter(x => x !== id));
     return json({ ok: true, settings: await readAll(kv) });
   } catch (error) {
     return json({ error: error.message || "차단 설정을 삭제하지 못했습니다." }, 500);
