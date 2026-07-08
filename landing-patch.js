@@ -1,4 +1,6 @@
 (() => {
+  let queued = false;
+
   function esc(value) {
     return String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -25,20 +27,23 @@
     document.head.appendChild(s);
   }
 
+  function setText(node, text) {
+    if (node && node.textContent !== text) node.textContent = text;
+  }
+
   function rewriteHero() {
-    const h1 = document.querySelector(".manifesto h1");
-    const lead = document.querySelector(".manifesto .lead");
-    if (h1) h1.textContent = "진도는 학원에서, 복습은 학교에서";
-    if (lead) {
-      lead.textContent = "교실의 조용함은 모두가 이해했다는 뜻이 아니다. 이미 학원에서 배웠거나, 모른다고 말해도 수업이 멈추지 않는다는 사실을 배운 결과일 수 있다. 학교가 이해를 책임지지 않고 진도만 끝내는 순간, 교육은 공교육이 아니라 사교육 복습 시스템으로 변한다.";
-    }
+    setText(document.querySelector(".manifesto h1"), "진도는 학원에서, 복습은 학교에서");
+    setText(
+      document.querySelector(".manifesto .lead"),
+      "교실의 조용함은 모두가 이해했다는 뜻이 아니다. 이미 학원에서 배웠거나, 모른다고 말해도 수업이 멈추지 않는다는 사실을 배운 결과일 수 있다. 학교가 이해를 책임지지 않고 진도만 끝내는 순간, 교육은 공교육이 아니라 사교육 복습 시스템으로 변한다."
+    );
   }
 
   function moveFeatured() {
     const host = document.querySelector(".hero-side") || document.querySelector(".manifesto");
     const voices = document.querySelector("#voices");
     const cards = [...document.querySelectorAll("#voices .post-card")].slice(0, 4);
-    if (voices && cards.length) voices.style.display = "none";
+    if (voices) voices.style.display = cards.length ? "none" : "";
     if (!host || !cards.length) return;
 
     let box = host.querySelector(".edu-featured-comments");
@@ -65,10 +70,14 @@
     if (!recent || recent.querySelector(".edu-write-jump-wrap")) return;
     const wrap = document.createElement("div");
     wrap.className = "edu-write-jump-wrap";
-    wrap.innerHTML = `<button class="edu-write-jump" type="button">글 올리기</button>`;
-    wrap.querySelector("button").addEventListener("click", () => {
+    const button = document.createElement("button");
+    button.className = "edu-write-jump";
+    button.type = "button";
+    button.textContent = "글 올리기";
+    button.addEventListener("click", () => {
       document.querySelector("#write")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+    wrap.appendChild(button);
     recent.appendChild(wrap);
   }
 
@@ -80,6 +89,15 @@
     addWriteJump();
   }
 
-  apply();
-  new MutationObserver(apply).observe(document.documentElement, { childList: true, subtree: true });
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      apply();
+    });
+  }
+
+  schedule();
+  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
 })();
