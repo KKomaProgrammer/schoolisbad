@@ -212,7 +212,7 @@ body.reference-main .edu-featured-comments { display: none !important; }
   grid-template-columns: repeat(3, 1fr);
   gap: 18px;
 }
-.stat-grid { grid-template-columns: repeat(4, 1fr); }
+.stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .problem-card, .demand-card, .ref-stat-card {
   border: 4px solid #111;
   background: #fff;
@@ -232,8 +232,21 @@ body.reference-main .edu-featured-comments { display: none !important; }
 }
 .problem-card h3, .demand-card h3 { margin: 18px 0 10px; font-size: 24px; letter-spacing: -.04em; }
 .problem-card p, .demand-card p, .ref-stat-card p { line-height: 1.7; font-weight: 700; color: #352a22; }
-.ref-stat-card { background: #fff7e7; box-shadow: 8px 8px 0 #ffbd2e; }
-.ref-stat-card strong { display: block; color: #d71920; font-size: clamp(42px, 5vw, 68px); line-height: 1; }
+.ref-stat-card { background: #fff7e7; box-shadow: 8px 8px 0 #ffbd2e; min-width: 0; }
+.ref-stat-card strong {
+  display: block;
+  color: #d71920;
+  font-size: clamp(36px, 4.2vw, 68px);
+  line-height: 1;
+  white-space: nowrap;
+  word-break: keep-all;
+  letter-spacing: -.055em;
+}
+.ref-stat-card strong .counter {
+  display: inline;
+  margin-top: 0;
+  white-space: nowrap;
+}
 .ref-stat-card span { display: block; margin-top: 10px; font-weight: 950; }
 .chain-list {
   width: min(1050px, 100%);
