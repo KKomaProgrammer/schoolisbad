@@ -19,7 +19,7 @@ import {
   verifyAdmin,
 } from "../lib/common.js";
 import { analyzeSentiment } from "../lib/sentiment.js";
-import { detectBannedPolitician, politicianMessage } from "../lib/banned-politicians.js";
+import { detectBannedPolitician } from "../lib/banned-politicians.js";
 
 export const PASS_SENTIMENT_LABELS = ["negative"];
 export const MAX_FAILED_SENTIMENT_COUNT = 5;
@@ -49,27 +49,41 @@ function detectPoliticalTopic(text) {
   return "";
 }
 
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 function politicalMessage(kind) {
   const messages = {
     party: [
-      "여긴 정당 응원석이 아니라 교육 비판 게시판이에요. 당 색깔은 잠시 가방에 넣고 와주세요.",
-      "정당 배틀은 다른 경기장으로! 여기서는 학교와 사교육 문제만 다룹니다.",
+      "정당 응원봉이 흔들렸습니다. 이 게시판은 학교·사교육 문제 전용이라 당 색깔은 잠시 사물함에 넣어주세요.",
+      "정당 배틀은 다른 경기장으로! 여기서는 학원 선행과 학교 진도 문제만 경기합니다.",
     ],
     election: [
-      "투표함은 잠시 닫고, 교실 이야기부터 해주세요. 선거 이야기는 등록되지 않습니다.",
-      "선거 유세차가 게시판 앞을 지나갔습니다. 교육 문제로 다시 써주세요.",
+      "선거 유세차가 교문 앞에서 유턴했습니다. 후보 이야기 말고 교실 이야기를 적어주세요.",
+      "투표함은 잠시 닫겠습니다. 이 글은 선거 과목으로 분류되어 등록되지 않았습니다.",
     ],
     office: [
-      "정치 뉴스룸으로 연결될 뻔했어요. 여긴 학교·사교육 문제 전용 게시판입니다.",
-      "정부·국회 이야기는 잠시 내려놓고, 교실과 학원 이야기로 돌아와 주세요.",
+      "정부·국회 단어가 교실 창문으로 들어왔습니다. 여긴 교육 문제 게시판이라 정치 뉴스는 조용히 퇴장합니다.",
+      "정치 뉴스룸으로 순간이동하려다 붙잡혔습니다. 학교·학원·입시 문제로 다시 작성해 주세요.",
     ],
     conflict: [
       "정쟁 드럼 소리가 너무 큽니다. 이 게시판은 교육 문제만 받습니다.",
-      "정치 공방은 차단! 학교 수업, 사교육, 입시 문제로 다시 적어주세요.",
+      "정치 공방은 파울! 학교 수업, 사교육, 입시 문제로 다시 플레이해 주세요.",
     ],
   };
-  const list = messages[kind] || ["정치 주제는 이 게시판의 과목이 아닙니다. 교육 문제로 다시 작성해 주세요."];
-  return list[Math.floor(Math.random() * list.length)];
+  return pick(messages[kind] || ["정치 주제는 오늘 결석 처리됐습니다. 교육 문제로 다시 작성해 주세요."]);
+}
+
+function politicianBlockMessage(hit) {
+  const name = String(hit?.name || "정치인");
+  const mode = hit?.type === "initial" ? "초성 소환술" : "정치인 이름 소환";
+  return pick([
+    `${mode}로 ${name} 님이 호출됐습니다. 여긴 국회 방청석이 아니라 학교·사교육 비판 게시판입니다.`,
+    `${name} 님 이름이 교실 문 앞 검색대에서 걸렸습니다. 정치인은 퇴장, 교육 문제만 입장 가능합니다.`,
+    `${name} 님을 부르는 주문은 차단됐습니다. 학원 선행, 학교 진도, 입시 경쟁 이야기로 다시 써주세요.`,
+    `게시판 심판이 휘슬을 불었습니다. ${name} 님 소환은 파울, 교육 비판은 플레이 온!`,
+  ]);
 }
 
 function friendlyDate(value) {
@@ -80,30 +94,89 @@ function friendlyDate(value) {
   }
 }
 
-function sentimentMessage(title, body, sentiment) {
+function topicOf(text) {
+  if (/학원|사교육|선행/.test(text)) return "academy";
+  if (/학교|교실|선생|교사|수업|진도/.test(text)) return "school";
+  if (/입시|성적|시험|수능|내신/.test(text)) return "exam";
+  if (/체험학습|현장학습|수학여행/.test(text)) return "field";
+  if (/수학|수포자/.test(text)) return "math";
+  return "general";
+}
+
+function positiveMessage(title, body) {
   const text = `${title} ${body}`;
-  const compact = text.replace(/\s+/g, "");
+  const topic = topicOf(text);
+  const messages = {
+    academy: [
+      "학원 칭찬이 너무 반짝입니다. 이곳은 사교육 광고판이 아니라 사교육 의존 문제를 비판하는 게시판이에요.",
+      "학원이 주인공이 되었습니다. 학원 덕분에 좋았다는 말보다, 왜 학교가 학원에 기대게 됐는지를 적어주세요.",
+    ],
+    school: [
+      "학교가 너무 모범생처럼 칭찬받고 있습니다. 이 게시판은 학교의 진도 중심 수업과 책임 회피를 비판하는 곳이에요.",
+      "교실 칭찬 종이비행기가 날아왔습니다. 하지만 여기서는 ‘다 이해했지?’ 뒤의 침묵 같은 문제를 적어주세요.",
+    ],
+    exam: [
+      "입시와 성적을 긍정하는 분위기가 감지됐습니다. 이곳은 점수 경쟁의 문제를 말하는 게시판입니다.",
+      "시험 점수 응원가는 잠시 정지! 성적 중심 구조가 왜 문제인지로 다시 작성해 주세요.",
+    ],
+    field: [
+      "체험학습이 좋아요로 끝났습니다. 여기서는 체험학습이 왜 위축되는지, 어떤 구조가 문제인지가 필요합니다.",
+      "현장학습 소풍 모드가 켜졌습니다. 행정 부담과 책임 회피 문제까지 데려와 주세요.",
+    ],
+    math: [
+      "수학이 괜찮다는 분위기가 감지됐습니다. 수포자가 생기는 구조 비판으로 방향을 틀어주세요.",
+      "수학 칭찬은 통과하지 못했습니다. 진도와 선행 때문에 포기자가 생기는 문제를 적어주세요.",
+    ],
+    general: [
+      "칭찬 버튼을 누르려다 길을 잃었습니다. 이곳은 교육 문제 비판 게시판이라 긍정 글은 등록되지 않습니다.",
+      "분위기가 너무 훈훈합니다. 여기는 박수보다 문제 제기가 필요한 게시판입니다.",
+    ],
+  };
+  return pick(messages[topic] || messages.general);
+}
+
+function neutralMessage(title, body, sentiment) {
+  const text = `${title} ${body}`;
+  const topic = topicOf(text);
   const matched = Array.isArray(sentiment?.matchedTerms) ? sentiment.matchedTerms.map((x) => String(x?.[0] || "")).join(" ") : "";
 
-  if (/재미없|재밌지않|안재밌|안재미/.test(compact) || /재미없음/.test(matched)) {
-    return "재미없다는 마음은 접수됐지만, 교육 문제 비판으로 조금만 더 구체화해 주세요. 게시판 심사위원이 팝콘 들고 기다립니다.";
+  if (/재미없|재밌지않|안재밌|안재미/.test(text.replace(/\s+/g, "")) || /재미없음/.test(matched)) {
+    return "재미없다는 신호는 잡혔지만 비판 문장이 아직 짧습니다. 왜 재미없고, 그게 학교·사교육 구조와 어떻게 연결되는지 더 적어주세요.";
   }
-  if (/학원|사교육|선행/.test(text)) {
-    return "학원 이야기는 좋은데, 아직 비판의 칼날이 무뎌요. 사교육 의존 문제가 드러나게 한 번 더 찔러주세요.";
-  }
-  if (/학교|교실|선생|수업|진도/.test(text)) {
-    return "학교 이야기는 맞는데, 지금 문장은 아직 종이비행기 수준이에요. 진도·수업·책임 문제를 더 분명히 써주세요.";
-  }
-  if (/입시|성적|시험|수능|내신/.test(text)) {
-    return "입시 이야기는 감지됐지만 비판 신호가 약합니다. 점수 경쟁의 문제를 더 또렷하게 적어주세요.";
-  }
-  if (/체험학습|현장학습|수학여행/.test(text)) {
-    return "체험학습 이야기는 보였는데, 왜 문제인지가 살짝 숨었습니다. 행정 부담이나 책임 회피를 더 콕 집어주세요.";
-  }
-  if (sentiment?.label === "positive") {
-    return "칭찬 버튼을 누르려다 길을 잃었습니다. 이곳은 교육 문제 비판 게시판이라 부정 의견만 등록됩니다.";
-  }
-  return "비판 에너지가 아직 충전 중입니다. 학교·사교육·입시 문제를 더 구체적으로 적어주세요.";
+
+  const messages = {
+    academy: [
+      "학원 이야기는 보였지만 아직 설명문 모드입니다. 사교육 의존이 왜 문제인지 더 날카롭게 적어주세요.",
+      "학원 키워드는 입장했지만 비판은 지각했습니다. 선행학습 의존 문제를 더 분명히 써주세요.",
+    ],
+    school: [
+      "학교 이야기는 맞는데 아직 회의록처럼 중립적입니다. 진도, 수업, 책임 문제를 비판 문장으로 바꿔주세요.",
+      "교실은 등장했지만 문제 제기가 약합니다. ‘다 이해했지?’ 뒤의 침묵을 더 세게 적어주세요.",
+    ],
+    exam: [
+      "입시 키워드는 감지됐지만 비판 신호가 약합니다. 성적 경쟁의 부작용을 더 또렷하게 적어주세요.",
+      "시험 이야기가 너무 얌전합니다. 점수 중심 구조가 왜 학생을 밀어내는지 적어주세요.",
+    ],
+    field: [
+      "체험학습 이야기는 보였지만 아직 현장감이 부족합니다. 위축되는 이유와 책임 회피 문제를 콕 집어주세요.",
+      "소풍 안내문처럼 보입니다. 체험학습이 왜 막히는지 비판을 더해 주세요.",
+    ],
+    math: [
+      "수학 이야기는 보였지만 아직 칠판이 조용합니다. 수포자가 생기는 구조를 비판해 주세요.",
+      "수학 키워드는 잡혔지만 문제 제기가 약합니다. 진도와 선행의 압박을 더 분명히 써주세요.",
+    ],
+    general: [
+      "중립 기어가 들어갔습니다. 이 게시판은 문제 제기가 필요하니 교육의 어떤 점이 잘못됐는지 더 분명히 적어주세요.",
+      "글이 너무 무표정합니다. 학교·사교육·입시 문제 중 무엇을 비판하는지 선명하게 적어주세요.",
+    ],
+  };
+  return pick(messages[topic] || messages.general);
+}
+
+function sentimentMessage(title, body, sentiment) {
+  if (sentiment?.label === "positive") return positiveMessage(title, body);
+  if (sentiment?.label === "neutral") return neutralMessage(title, body, sentiment);
+  return neutralMessage(title, body, sentiment);
 }
 
 async function readPost(kv, id) {
@@ -224,12 +297,12 @@ export async function onRequestPost({ request, env }) {
 
     const politicianHit = detectBannedPolitician(`${title}\n${body}`);
     if (politicianHit) {
-      return json({ error: politicianMessage(politicianHit), blocked: true, blockType: "politician" }, 422);
+      return json({ error: politicianBlockMessage(politicianHit), blocked: true, blockType: "politician", target: politicianHit.name }, 422);
     }
 
     const politicalKind = detectPoliticalTopic(`${title}\n${body}`);
     if (politicalKind) {
-      return json({ error: politicalMessage(politicalKind), blocked: true, blockType: "political" }, 422);
+      return json({ error: politicalMessage(politicalKind), blocked: true, blockType: "political", politicalKind }, 422);
     }
 
     const existingPostId = await kv.get(`ip-post:${ip}`);
@@ -255,6 +328,7 @@ export async function onRequestPost({ request, env }) {
       return json({
         error: sentimentMessage(title, body, sentiment),
         sentiment,
+        blockType: sentiment.label === "positive" ? "positive" : "neutral",
       }, 422);
     }
 
