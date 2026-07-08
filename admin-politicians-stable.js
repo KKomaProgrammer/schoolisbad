@@ -1,6 +1,7 @@
 (() => {
   let rules = [];
   let busy = false;
+  let renderedKey = "";
 
   const CARD_ID = "politicianRulesCardStable";
 
@@ -15,6 +16,10 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function rulesKey() {
+    return JSON.stringify(rules.map(r => [r.id, r.name, r.aliases, r.messages]));
   }
 
   async function call(method, body) {
@@ -70,9 +75,13 @@
     `;
   }
 
-  function render() {
+  function render(force = false) {
     const list = document.querySelector("#politicianStableList");
     if (!list) return;
+    const key = rulesKey();
+    if (!force && renderedKey === key && list.dataset.rendered === "1") return;
+    renderedKey = key;
+    list.dataset.rendered = "1";
     if (!rules.length) {
       list.innerHTML = `<div class="empty">아직 관리자 추가 정치인이 없습니다.</div>`;
       return;
@@ -105,9 +114,10 @@
             negativeMessage: fd.get("negativeMessage"),
           });
           rules = data.rules || [];
+          renderedKey = "";
           form.reset();
           form.id.value = "";
-          render();
+          render(true);
         } catch (err) { alert(err.message || "저장하지 못했습니다."); }
       });
     }
@@ -143,7 +153,8 @@
     try {
       const data = await call("DELETE", {id: del.dataset.prDel});
       rules = data.rules || [];
-      render();
+      renderedKey = "";
+      render(true);
     } catch (err) { alert(err.message || "삭제하지 못했습니다."); }
   }, true);
 
@@ -153,9 +164,10 @@
     try {
       const data = await call("GET");
       rules = data.rules || [];
+      renderedKey = "";
     } catch {}
     busy = false;
-    render();
+    render(true);
   }
 
   async function mount() {
@@ -169,10 +181,9 @@
       layout.insertBefore(t.firstElementChild, layout.querySelector("article.admin-card") || null);
       bind();
       await load();
-    } else {
-      bind();
-      render();
+      return;
     }
+    bind();
   }
 
   let queued = false;
