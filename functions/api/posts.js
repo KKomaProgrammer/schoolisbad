@@ -71,6 +71,14 @@ function politicalMessage(kind) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+function friendlyDate(value) {
+  try {
+    return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  } catch {
+    return String(value || "잠시 뒤");
+  }
+}
+
 function sentimentMessage(title, body, sentiment) {
   const text = `${title} ${body}`;
   const compact = text.replace(/\s+/g, "");
@@ -197,7 +205,7 @@ export async function onRequestPost({ request, env }) {
 
     if (activeBlock) {
       return json({
-        error: `앗, 아직 쉬는 시간입니다. ${formatDate(activeBlock.blockedUntil)} 이후 다시 도전해 주세요.`,
+        error: `앗, 아직 쉬는 시간입니다. ${friendlyDate(activeBlock.blockedUntil)} 이후 다시 도전해 주세요.`,
         blocked: true,
         blockedUntil: activeBlock.blockedUntil,
       }, 429);
