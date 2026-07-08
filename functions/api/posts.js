@@ -20,6 +20,7 @@ import {
 } from "../lib/common.js";
 import { analyzeSentiment } from "../lib/sentiment.js";
 import { detectBannedPolitician } from "../lib/banned-politicians.js";
+import { detectCustomPolitician, loadPoliticianRules, messageForPoliticianRule } from "../lib/politician-rules.js";
 
 export const PASS_SENTIMENT_LABELS = ["negative"];
 export const MAX_FAILED_SENTIMENT_COUNT = 5;
@@ -75,15 +76,25 @@ function politicalMessage(kind) {
   return pick(messages[kind] || ["정치 주제는 오늘 결석 처리됐습니다. 교육 문제로 다시 작성해 주세요."]);
 }
 
-function politicianBlockMessage(hit) {
+function defaultPoliticianMessage(hit, label) {
   const name = String(hit?.name || "정치인");
-  const mode = hit?.type === "initial" ? "초성 소환술" : "정치인 이름 소환";
-  return pick([
-    `${mode}로 ${name} 님이 호출됐습니다. 여긴 국회 방청석이 아니라 학교·사교육 비판 게시판입니다.`,
-    `${name} 님 이름이 교실 문 앞 검색대에서 걸렸습니다. 정치인은 퇴장, 교육 문제만 입장 가능합니다.`,
-    `${name} 님을 부르는 주문은 차단됐습니다. 학원 선행, 학교 진도, 입시 경쟁 이야기로 다시 써주세요.`,
-    `게시판 심판이 휘슬을 불었습니다. ${name} 님 소환은 파울, 교육 비판은 플레이 온!`,
-  ]);
+  const type = hit?.type === "initial" ? "초성 소환술" : "정치인 이름 소환";
+  const messages = {
+    positive: [
+      `${name} 님 칭찬이 감지됐습니다. 박수는 정치 뉴스룸으로, 여기는 교육 비판 게시판으로 보내주세요.`,
+      `${type}로 ${name} 님을 응원하려다 걸렸습니다. 학교·사교육 문제로 다시 작성해 주세요.`,
+    ],
+    neutral: [
+      `${name} 님 이야기가 중립 포장지에 싸여 들어왔습니다. 정치인은 잠시 퇴장, 교육 문제만 입장 가능합니다.`,
+      `${type}이 감지됐습니다. 이 게시판은 국회 방청석이 아니라 학교·사교육 비판 게시판입니다.`,
+    ],
+    negative: [
+      `${name} 님 비판도 정치 주제라 등록되지 않습니다. 교육 문제 비판만 플레이 온입니다.`,
+      `게시판 심판이 휘슬을 불었습니다. ${name} 님 소환은 파울, 학교·학원·입시 문제로 다시 써주세요.`,
+    ],
+  };
+  const key = label === "positive" || label === "negative" ? label : "neutral";
+  return pick(messages[key]);
 }
 
 function friendlyDate(value) {
@@ -290,17 +301,31 @@ export async function onRequestPost({ request, env }) {
     const body = cleanText(data.body, 1200);
     const category = cleanText(data.category || "기타", 30);
     const ownerToken = cleanText(data.ownerToken, 200);
+    const fullText = `${title}\n${body}`;
 
     if (!ownerToken) return json({ error: "기기 식별 토큰이 없습니다. 페이지를 새로고침해 주세요." }, 400);
     if (title.length < 2) return json({ error: "제목은 2자 이상 입력해 주세요." }, 400);
     if (body.length < 10) return json({ error: "내용은 10자 이상 입력해 주세요." }, 400);
 
-    const politicianHit = detectBannedPolitician(`${title}\n${body}`);
+    const customRules = await loadPoliticianRules(kv);
+    const customHit = detectCustomPolitician(fullText, customRules);
+    const politicianHit = customHit || detectBannedPolitician(fullText);
     if (politicianHit) {
-      return json({ error: politicianBlockMessage(politicianHit), blocked: true, blockType: "politician", target: politicianHit.name }, 422);
+      const sentiment = await analyzeSentiment(fullText, env);
+      const label = sentiment?.label === "positive" || sentiment?.label === "negative" ? sentiment.label : "neutral";
+      const message = customHit ? messageForPoliticianRule(customHit, label) : defaultPoliticianMessage(politicianHit, label);
+      return json({
+        error: message,
+        blocked: true,
+        blockType: "politician",
+        target: politicianHit.name,
+        sentiment,
+        sentimentLabel: label,
+        editableRule: Boolean(customHit),
+      }, 422);
     }
 
-    const politicalKind = detectPoliticalTopic(`${title}\n${body}`);
+    const politicalKind = detectPoliticalTopic(fullText);
     if (politicalKind) {
       return json({ error: politicalMessage(politicalKind), blocked: true, blockType: "political", politicalKind }, 422);
     }
@@ -314,7 +339,7 @@ export async function onRequestPost({ request, env }) {
       await kv.delete(`ip-post:${ip}`);
     }
 
-    const sentiment = await analyzeSentiment(`${title}\n${body}`, env);
+    const sentiment = await analyzeSentiment(fullText, env);
     if (!PASS_SENTIMENT_LABELS.includes(sentiment.label)) {
       const newBlock = await recordFailedSentiment(kv, ip, sentiment);
       if (newBlock) {
