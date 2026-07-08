@@ -19,6 +19,7 @@ import {
   verifyAdmin,
 } from "../lib/common.js";
 import { analyzeSentiment } from "../lib/sentiment.js";
+import { detectBannedPolitician, politicianMessage } from "../lib/banned-politicians.js";
 
 export const PASS_SENTIMENT_LABELS = ["negative"];
 export const MAX_FAILED_SENTIMENT_COUNT = 5;
@@ -220,6 +221,11 @@ export async function onRequestPost({ request, env }) {
     if (!ownerToken) return json({ error: "기기 식별 토큰이 없습니다. 페이지를 새로고침해 주세요." }, 400);
     if (title.length < 2) return json({ error: "제목은 2자 이상 입력해 주세요." }, 400);
     if (body.length < 10) return json({ error: "내용은 10자 이상 입력해 주세요." }, 400);
+
+    const politicianHit = detectBannedPolitician(`${title}\n${body}`);
+    if (politicianHit) {
+      return json({ error: politicianMessage(politicianHit), blocked: true, blockType: "politician" }, 422);
+    }
 
     const politicalKind = detectPoliticalTopic(`${title}\n${body}`);
     if (politicalKind) {
