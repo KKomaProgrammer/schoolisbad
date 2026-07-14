@@ -64,10 +64,17 @@
   document.addEventListener("click", clearStaleBlock, true);
   document.addEventListener("submit", clearStaleBlock, true);
 
-  function upsertPosts(posts) {
-    adminPostsById.clear();
+  function upsertPosts(posts, replace = false) {
+    if (replace) adminPostsById.clear();
     for (const post of posts || []) {
-      if (post && post.id) adminPostsById.set(post.id, post);
+      if (!post?.id) continue;
+      const prev = adminPostsById.get(post.id) || {};
+      adminPostsById.set(post.id, {
+        ...prev,
+        ...post,
+        ip: post.ip || prev.ip || "",
+        maskedIp: post.maskedIp || prev.maskedIp || "",
+      });
     }
   }
 
@@ -95,7 +102,8 @@
 
       if (url.includes("/api/posts") && response.ok) {
         response.clone().json().then((data) => {
-          upsertPosts(data.posts || []);
+          upsertPosts(data.posts || [], false);
+          loadAdminPostsIfNeeded(true);
           schedule();
         }).catch(() => {});
       }
@@ -118,11 +126,11 @@
     if (!session) return;
     postsLoading = true;
     try {
-      const res = await originalFetch("/api/posts", {
+      const res = await originalFetch("/api/admin/posts", {
         headers: authHeaders({ "x-owner-token": localStorage.getItem("schoolisbad_owner_token") || "" }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) upsertPosts(data.posts || []);
+      if (res.ok) upsertPosts(data.posts || [], true);
     } catch (error) {
     } finally {
       postsLoading = false;
