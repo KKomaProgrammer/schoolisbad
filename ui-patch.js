@@ -19,11 +19,7 @@
 
   function authHeaders(extra = {}) {
     const session = adminSession();
-    return {
-      ...extra,
-      authorization: `Bearer ${session}`,
-      "x-admin-token": session,
-    };
+    return { ...extra, authorization: `Bearer ${session}`, "x-admin-token": session };
   }
 
   function escapeHtml(value) {
@@ -37,6 +33,10 @@
 
   function cssEscape(value) {
     try { return CSS.escape(String(value)); } catch { return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&"); }
+  }
+
+  function exactIp(post) {
+    return String(post?.ip || "").trim();
   }
 
   function injectStyle() {
@@ -84,16 +84,13 @@
 
   function upsertNotes(notes) {
     notesByIp.clear();
-    for (const item of notes || []) {
-      if (item?.ip) notesByIp.set(item.ip, item.note || "");
-    }
+    for (const item of notes || []) if (item?.ip) notesByIp.set(item.ip, item.note || "");
   }
 
   if (location.pathname.startsWith("/admin")) {
     window.fetch = async (input, init = {}) => {
       const url = typeof input === "string" ? input : input && input.url ? input.url : "";
       let nextInit = init;
-
       if (url.includes("/api/posts")) {
         const headers = new Headers(init.headers || {});
         const session = adminSession();
@@ -101,9 +98,7 @@
         if (session && !headers.has("x-admin-token")) headers.set("x-admin-token", session);
         nextInit = { ...init, headers };
       }
-
       const response = await originalFetch(input, nextInit);
-
       if (url.includes("/api/posts") && response.ok) {
         response.clone().json().then((data) => {
           upsertPosts(data.posts || [], false);
@@ -111,14 +106,9 @@
           schedule();
         }).catch(() => {});
       }
-
       if (!url.includes("/api/admin/blocks")) return response;
       if (response.ok) return response;
-
-      return new Response(JSON.stringify({ blocks: [] }), {
-        status: 200,
-        headers: { "content-type": "application/json; charset=utf-8" },
-      });
+      return new Response(JSON.stringify({ blocks: [] }), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
     };
   }
 
@@ -130,9 +120,7 @@
     if (!session) return;
     postsLoading = true;
     try {
-      const res = await originalFetch("/api/admin/posts", {
-        headers: authHeaders({ "x-owner-token": localStorage.getItem("schoolisbad_owner_token") || "" }),
-      });
+      const res = await originalFetch("/api/admin/posts", { headers: authHeaders({ "x-owner-token": localStorage.getItem("schoolisbad_owner_token") || "" }) });
       const data = await res.json().catch(() => ({}));
       if (res.ok) upsertPosts(data.posts || [], true);
     } catch (error) {
@@ -150,14 +138,9 @@
     if (!session) return;
     notesLoading = true;
     try {
-      const res = await originalFetch("/api/admin/user-notes", {
-        headers: authHeaders(),
-      });
+      const res = await originalFetch("/api/admin/user-notes", { headers: authHeaders() });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        upsertNotes(data.notes || []);
-        notesLoaded = true;
-      }
+      if (res.ok) { upsertNotes(data.notes || []); notesLoaded = true; }
     } catch (error) {
     } finally {
       notesLoading = false;
@@ -182,15 +165,12 @@
   document.addEventListener("click", async (event) => {
     const blockButton = event.target.closest?.("[data-ui-action='block-ip']");
     if (!blockButton) return;
-
     event.preventDefault();
     const ip = blockButton.dataset.ip || "";
     if (!ip) return alert("차단할 IP 정보가 없습니다. 새로고침 후 다시 시도해 주세요.");
     if (!confirm(`${ip} 를 차단할까요?`)) return;
-
     blockButton.disabled = true;
     blockButton.textContent = "차단 중";
-
     try {
       const res = await originalFetch("/api/admin/blocks", {
         method: "POST",
@@ -269,28 +249,16 @@
       card = document.createElement("article");
       card.className = "admin-card";
       card.id = "adminUserNotesCard";
-      card.innerHTML = `
-        <div class="section-head"><h2>사용자 메모 모음</h2><p>글 작성 IP와 차단 IP에 남긴 관리자 메모</p></div>
-        <div class="admin-note-list"></div>
-      `;
+      card.innerHTML = `<div class="section-head"><h2>사용자 메모 모음</h2><p>글 작성 IP와 차단 IP에 남긴 관리자 메모</p></div><div class="admin-note-list"></div>`;
       const blockCard = [...layout.querySelectorAll("article.admin-card")].find((item) => item.textContent.includes("IP 차단 리스트"));
-      if (blockCard?.nextSibling) layout.insertBefore(card, blockCard.nextSibling);
-      else layout.appendChild(card);
+      if (blockCard?.nextSibling) layout.insertBefore(card, blockCard.nextSibling); else layout.appendChild(card);
     }
     const list = card.querySelector(".admin-note-list");
     const items = [...notesByIp.entries()].filter(([, text]) => String(text || "").trim());
-    if (!items.length) {
-      list.innerHTML = `<div class="empty">저장된 사용자 메모가 없습니다.</div>`;
-      return;
-    }
+    if (!items.length) { list.innerHTML = `<div class="empty">저장된 사용자 메모가 없습니다.</div>`; return; }
     list.innerHTML = items.map(([ip, text]) => `
       <div class="admin-note-item">
-        <div class="admin-note-head">
-          <b>${escapeHtml(ip)}</b>
-          <div class="admin-note-actions">
-            <button type="button" class="btn danger small" data-ui-action="block-ip" data-ip="${escapeHtml(ip)}">IP 차단</button>
-          </div>
-        </div>
+        <div class="admin-note-head"><b>${escapeHtml(ip)}</b><div class="admin-note-actions"><button type="button" class="btn danger small" data-ui-action="block-ip" data-ip="${escapeHtml(ip)}">IP 차단</button></div></div>
         <div class="admin-user-note-text">${escapeHtml(text)}</div>
       </div>
     `).join("");
@@ -307,8 +275,8 @@
       const post = adminPostsById.get(postId);
       const actions = row.querySelector(".admin-row-actions");
       const titleCell = row.children[1];
-
-      if (!post?.ip) {
+      const ip = exactIp(post);
+      if (!ip) {
         if (actions && !actions.querySelector("[data-ui-action='block-ip']") && !actions.querySelector(".admin-ip-missing")) {
           const miss = document.createElement("span");
           miss.className = "help admin-ip-missing";
@@ -318,26 +286,23 @@
         loadAdminPostsIfNeeded(true);
         continue;
       }
-
       actions?.querySelector(".admin-ip-missing")?.remove();
-
-      if (titleCell && !titleCell.querySelector(".admin-ip-chip")) {
-        const chip = document.createElement("div");
-        chip.className = "admin-ip-chip";
-        chip.textContent = `IP ${post.maskedIp || post.ip}`;
-        titleCell.appendChild(chip);
+      if (titleCell) {
+        let chip = titleCell.querySelector(".admin-ip-chip");
+        if (!chip) {
+          chip = document.createElement("div");
+          chip.className = "admin-ip-chip";
+          titleCell.appendChild(chip);
+        }
+        chip.textContent = `IP ${ip}`;
       }
-
-      if (titleCell && !titleCell.querySelector(`[data-note-ip='${cssEscape(post.ip)}']`)) {
-        titleCell.insertAdjacentHTML("beforeend", noteHtml(post.ip));
-      }
-
-      if (actions && !actions.querySelector(`[data-ui-action='block-ip'][data-ip='${cssEscape(post.ip)}']`)) {
+      if (titleCell && !titleCell.querySelector(`[data-note-ip='${cssEscape(ip)}']`)) titleCell.insertAdjacentHTML("beforeend", noteHtml(ip));
+      if (actions && !actions.querySelector(`[data-ui-action='block-ip'][data-ip='${cssEscape(ip)}']`)) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn danger small";
         btn.dataset.uiAction = "block-ip";
-        btn.dataset.ip = post.ip;
+        btn.dataset.ip = ip;
         btn.textContent = "IP 차단";
         actions.appendChild(btn);
       }
@@ -351,9 +316,7 @@
       const ip = row.querySelector("td b")?.textContent?.trim() || "";
       if (!ip || ip.includes("차단된 IP 없음")) continue;
       const reasonCell = row.children[1];
-      if (reasonCell && !reasonCell.querySelector(`[data-note-ip='${cssEscape(ip)}']`)) {
-        reasonCell.insertAdjacentHTML("beforeend", noteHtml(ip));
-      }
+      if (reasonCell && !reasonCell.querySelector(`[data-note-ip='${cssEscape(ip)}']`)) reasonCell.insertAdjacentHTML("beforeend", noteHtml(ip));
     }
   }
 
@@ -361,14 +324,10 @@
     if (!location.pathname.startsWith("/admin")) return;
     const layout = document.querySelector(".admin-layout");
     if (!layout) return;
-
     const cards = [...layout.querySelectorAll("article.admin-card")];
     const blockCard = cards.find((card) => card.textContent.includes("IP 차단 리스트"));
     const postCard = cards.find((card) => card.textContent.includes("등록 글 관리"));
-    if (blockCard && postCard && (postCard.compareDocumentPosition(blockCard) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-      layout.insertBefore(blockCard, postCard);
-    }
-
+    if (blockCard && postCard && (postCard.compareDocumentPosition(blockCard) & Node.DOCUMENT_POSITION_FOLLOWING)) layout.insertBefore(blockCard, postCard);
     if (!adminPostsById.size) loadAdminPostsIfNeeded(true);
     loadNotes();
     enhancePostRows(layout);
@@ -376,19 +335,12 @@
     renderNoteSummary();
   }
 
-  function apply() {
-    clearStaleBlock();
-    injectStyle();
-    enhanceAdmin();
-  }
+  function apply() { clearStaleBlock(); injectStyle(); enhanceAdmin(); }
 
   function schedule() {
     if (queued) return;
     queued = true;
-    requestAnimationFrame(() => {
-      queued = false;
-      apply();
-    });
+    requestAnimationFrame(() => { queued = false; apply(); });
   }
 
   schedule();
