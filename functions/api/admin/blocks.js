@@ -13,17 +13,17 @@ async function allowAdmin(request, env) {
 }
 
 async function loadBlocks(kv) {
-  const ips = await getIndex(kv, BLOCKS_INDEX_KEY);
+  const keys = await getIndex(kv, BLOCKS_INDEX_KEY);
   const blocks = [];
-  for (const ip of ips) {
-    const block = await getJson(kv, `block:${ip}`, null);
+  for (const key of keys) {
+    const block = await getJson(kv, `block:${key}`, null);
     if (!block) continue;
     if (!isFuture(block.blockedUntil)) {
-      await kv.delete(`block:${ip}`);
-      await removeFromIndex(kv, BLOCKS_INDEX_KEY, ip);
+      await kv.delete(`block:${key}`);
+      await removeFromIndex(kv, BLOCKS_INDEX_KEY, key);
       continue;
     }
-    blocks.push(block);
+    blocks.push({ ...block, blockKey: block.blockKey || key });
   }
   return sortByNewest(blocks.map((b) => ({ ...b, createdAt: b.blockedAt })));
 }
@@ -48,11 +48,14 @@ export async function onRequestPost({ request, env }) {
 
     const minutes = Math.max(10, Math.min(60 * 24 * 7, Number(data.minutes || DEFAULT_MANUAL_BLOCK_MINUTES)));
     const block = {
+      blockKey: ip,
+      identityType: "ip",
       ip,
       maskedIp: maskIp(ip),
       reason: String(data.reason || "관리자 수동 차단").slice(0, 80),
       blockedAt: nowIso(),
       blockedUntil: addMinutes(new Date(), minutes),
+      blockMinutes: minutes,
       manual: true,
     };
 
@@ -71,12 +74,31 @@ export async function onRequestDelete({ request, env }) {
   try {
     const kv = getKV(env);
     const data = await readJson(request);
-    const ip = String(data.ip || "").trim();
-    if (!ip) return json({ error: "해제할 IP가 없습니다." }, 400);
-    await kv.delete(`block:${ip}`);
-    await kv.delete(`fail:${ip}`);
-    await removeFromIndex(kv, BLOCKS_INDEX_KEY, ip);
-    return json({ ok: true, blocks: await loadBlocks(kv) });
+    const requested = String(data.blockKey || data.key || data.ip || "").trim();
+    if (!requested) return json({ error: "해제할 IP 또는 기기 키가 없습니다." }, 400);
+
+    let deleted = false;
+    if (await getJson(kv, `block:${requested}`, null)) {
+      await kv.delete(`block:${requested}`);
+      await kv.delete(`fail:${requested}`);
+      await removeFromIndex(kv, BLOCKS_INDEX_KEY, requested);
+      deleted = true;
+    }
+
+    if (!deleted) {
+      const keys = await getIndex(kv, BLOCKS_INDEX_KEY);
+      for (const key of keys) {
+        const block = await getJson(kv, `block:${key}`, null);
+        if (block && (block.ip === requested || block.blockKey === requested)) {
+          await kv.delete(`block:${key}`);
+          await kv.delete(`fail:${key}`);
+          await removeFromIndex(kv, BLOCKS_INDEX_KEY, key);
+          deleted = true;
+        }
+      }
+    }
+
+    return json({ ok: true, deleted, blocks: await loadBlocks(kv) });
   } catch (error) {
     return json({ error: error.message || "차단을 해제하지 못했습니다." }, 500);
   }
