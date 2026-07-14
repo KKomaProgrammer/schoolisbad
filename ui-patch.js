@@ -39,6 +39,11 @@
     return String(post?.ip || "").trim();
   }
 
+  function deviceLabel(post) {
+    const id = String(post?.deviceId || post?.ownerHash || "").trim();
+    return id ? id.slice(0, 12) : "";
+  }
+
   function injectStyle() {
     if (document.querySelector("#schoolisbad-ui-patch-style")) return;
     const style = document.createElement("style");
@@ -78,6 +83,8 @@
         ...post,
         ip: post.ip || prev.ip || "",
         maskedIp: post.maskedIp || prev.maskedIp || "",
+        ownerHash: post.ownerHash || prev.ownerHash || "",
+        deviceId: post.deviceId || prev.deviceId || (post.ownerHash || prev.ownerHash || "").slice(0, 12),
       });
     }
   }
@@ -294,7 +301,8 @@
           chip.className = "admin-ip-chip";
           titleCell.appendChild(chip);
         }
-        chip.textContent = `IP ${ip}`;
+        const dev = deviceLabel(post);
+        chip.textContent = `IP ${ip}${dev ? ` · 기기 ${dev}` : ""}`;
       }
       if (titleCell && !titleCell.querySelector(`[data-note-ip='${cssEscape(ip)}']`)) titleCell.insertAdjacentHTML("beforeend", noteHtml(ip));
       if (actions && !actions.querySelector(`[data-ui-action='block-ip'][data-ip='${cssEscape(ip)}']`)) {
