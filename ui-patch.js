@@ -49,13 +49,17 @@
       .admin-user-note-label { display: inline-block; width: fit-content; padding: 3px 7px; border: 2px solid #11100f; background: #ffbd2e; color: #11100f; font-size: 12px; font-weight: 950; box-shadow: 2px 2px 0 #11100f; }
       .admin-user-note-text { white-space: pre-wrap; word-break: break-word; color: #352a22; font-size: 13px; line-height: 1.55; font-weight: 750; }
       .admin-user-note-form { display: grid; gap: 6px; margin-top: 8px; }
+      .admin-user-note-form[hidden] { display: none !important; }
       .admin-user-note-form textarea { min-height: 58px; resize: vertical; font-size: 13px; line-height: 1.45; padding: 8px 9px; }
       .admin-user-note-form .note-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+      .admin-user-note-toggle { width: fit-content; margin-top: 2px; }
       #adminUserNotesCard { position: relative; overflow: hidden; background: linear-gradient(135deg,#fffaf0,#fff3d9); border: 3px solid #11100f; box-shadow: 7px 7px 0 #11100f; }
       #adminUserNotesCard::before { content: "MEMO"; position: absolute; right: -10px; top: 12px; transform: rotate(14deg); font-weight: 950; font-size: 42px; color: rgba(127,13,13,.08); pointer-events: none; }
       .admin-note-list { display: grid; gap: 10px; margin-top: 12px; position: relative; z-index: 1; }
       .admin-note-item { border: 2px solid #11100f; background: #fffaf0; padding: 10px; box-shadow: 3px 3px 0 #11100f; }
-      .admin-note-item b { color: #7f0d0d; }
+      .admin-note-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+      .admin-note-head b { color: #7f0d0d; }
+      .admin-note-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     `;
     document.head.appendChild(style);
   }
@@ -204,6 +208,19 @@
     }
   }, true);
 
+  document.addEventListener("click", (event) => {
+    const toggle = event.target.closest?.("[data-ui-action='toggle-user-note']");
+    if (!toggle) return;
+    event.preventDefault();
+    const box = toggle.closest(".admin-user-note");
+    const form = box?.querySelector(".admin-user-note-form");
+    if (!form) return;
+    const willOpen = form.hidden;
+    form.hidden = !willOpen;
+    toggle.textContent = willOpen ? "메모 닫기" : (toggle.dataset.hasNote === "1" ? "메모 수정" : "메모 추가");
+    if (willOpen) form.querySelector("textarea")?.focus();
+  }, true);
+
   document.addEventListener("click", async (event) => {
     const save = event.target.closest?.("[data-ui-action='save-user-note']");
     if (!save) return;
@@ -227,11 +244,13 @@
 
   function noteHtml(ip) {
     const text = notesByIp.get(ip) || "";
+    const hasNote = Boolean(String(text).trim());
     return `
       <div class="admin-user-note" data-note-ip="${escapeHtml(ip)}">
         <span class="admin-user-note-label">관리자 메모</span>
-        ${text ? `<div class="admin-user-note-text">${escapeHtml(text)}</div>` : `<div class="help">저장된 메모 없음</div>`}
-        <div class="admin-user-note-form">
+        ${hasNote ? `<div class="admin-user-note-text">${escapeHtml(text)}</div>` : `<div class="help">저장된 메모 없음</div>`}
+        <button type="button" class="btn secondary small admin-user-note-toggle" data-ui-action="toggle-user-note" data-has-note="${hasNote ? "1" : "0"}">${hasNote ? "메모 수정" : "메모 추가"}</button>
+        <div class="admin-user-note-form" hidden>
           <textarea placeholder="이 IP 사용자에 대한 관리자 메모" maxlength="1000">${escapeHtml(text)}</textarea>
           <div class="note-actions">
             <button type="button" class="btn secondary small" data-ui-action="save-user-note" data-ip="${escapeHtml(ip)}">메모 저장</button>
@@ -264,7 +283,17 @@
       list.innerHTML = `<div class="empty">저장된 사용자 메모가 없습니다.</div>`;
       return;
     }
-    list.innerHTML = items.map(([ip, text]) => `<div class="admin-note-item"><b>${escapeHtml(ip)}</b><div class="admin-user-note-text">${escapeHtml(text)}</div></div>`).join("");
+    list.innerHTML = items.map(([ip, text]) => `
+      <div class="admin-note-item">
+        <div class="admin-note-head">
+          <b>${escapeHtml(ip)}</b>
+          <div class="admin-note-actions">
+            <button type="button" class="btn danger small" data-ui-action="block-ip" data-ip="${escapeHtml(ip)}">IP 차단</button>
+          </div>
+        </div>
+        <div class="admin-user-note-text">${escapeHtml(text)}</div>
+      </div>
+    `).join("");
   }
 
   function getPostIdFromRow(row) {
