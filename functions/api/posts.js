@@ -140,16 +140,33 @@ function sentimentMessage(title, body, sentiment) {
 
 async function readPost(kv, id) { return await getJson(kv, `post:${id}`, null); }
 
+function shortDevice(ownerHash) {
+  return ownerHash ? ownerHash.slice(0, 12) : "";
+}
+
+function identityKey(ownerHash, ip) {
+  return ownerHash ? `device:${ownerHash}` : `ip:${ip}`;
+}
+
+async function ownerHashFromToken(ownerToken) {
+  return ownerToken ? await sha256(ownerToken) : "";
+}
+
 async function publicPost(post, ownerHash, isAdmin) {
   const item = { id: post.id, title: post.title, body: post.body, category: post.category, createdAt: post.createdAt, updatedAt: post.updatedAt, featured: Boolean(post.featured), featuredAt: post.featuredAt || null, canEdit: Boolean(isAdmin || (ownerHash && ownerHash === post.ownerHash)) };
-  if (isAdmin) { item.ip = post.ip || ""; item.maskedIp = post.maskedIp || maskIp(post.ip || ""); }
+  if (isAdmin) {
+    item.ip = post.ip || "";
+    item.maskedIp = post.maskedIp || maskIp(post.ip || "");
+    item.ownerHash = post.ownerHash || "";
+    item.deviceId = shortDevice(post.ownerHash || "");
+  }
   return item;
 }
 
 async function listPosts(kv, request, env) {
   const index = await getIndex(kv, POSTS_INDEX_KEY);
   const ownerToken = request.headers.get("x-owner-token") || "";
-  const ownerHash = ownerToken ? await sha256(ownerToken) : "";
+  const ownerHash = await ownerHashFromToken(ownerToken);
   const isAdmin = await verifyAdmin(request, env);
   const posts = [];
   for (const id of index.slice(0, MAX_PUBLIC_POSTS * 2)) {
@@ -157,17 +174,22 @@ async function listPosts(kv, request, env) {
     if (post && !post.deletedAt) posts.push(await publicPost(post, ownerHash, isAdmin));
   }
   const sorted = sortByNewest(posts).slice(0, MAX_PUBLIC_POSTS);
-  const featured = sorted.filter((post) => post.featured).sort((a, b) => new Date(b.featuredAt || b.createdAt) - new Date(a.featuredAt || a.createdAt)).slice(0, 4);
+  const featured = sorted.filter((post) => post.featured).sort((a, b) => new Date(b.featuredAt || b.createdAt) - new Date(a.createdAt || a.createdAt)).slice(0, 4);
   return { posts: sorted, featured };
 }
 
-async function getActiveBlock(kv, ip) {
-  const block = await getJson(kv, `block:${ip}`, null);
+async function getBlockByKey(kv, key) {
+  if (!key) return null;
+  const block = await getJson(kv, `block:${key}`, null);
   if (!block) return null;
-  if (isFuture(block.blockedUntil)) return block;
-  await kv.delete(`block:${ip}`);
-  await removeFromIndex(kv, BLOCKS_INDEX_KEY, ip);
+  if (isFuture(block.blockedUntil)) return { ...block, blockKey: key };
+  await kv.delete(`block:${key}`);
+  await removeFromIndex(kv, BLOCKS_INDEX_KEY, key);
   return null;
+}
+
+async function getActiveBlock(kv, identity, ip) {
+  return (await getBlockByKey(kv, identity)) || (await getBlockByKey(kv, ip));
 }
 
 async function maxPostsPerIp(kv) {
@@ -176,26 +198,27 @@ async function maxPostsPerIp(kv) {
   return Number.isFinite(n) ? Math.max(1, Math.min(50, Math.floor(n))) : DEFAULT_MAX_POSTS_PER_IP;
 }
 
-async function countPostsByIp(kv, ip) {
+async function countPostsByIdentity(kv, ownerHash, ip) {
   const index = await getIndex(kv, POSTS_INDEX_KEY);
   let count = 0;
   for (const id of index) {
     const post = await readPost(kv, id);
-    if (post && !post.deletedAt && post.ip === ip) count++;
+    if (!post || post.deletedAt) continue;
+    if (ownerHash ? post.ownerHash === ownerHash : post.ip === ip) count++;
   }
   return count;
 }
 
-async function recordFailedSentiment(kv, ip, sentiment) {
-  const key = `fail:${ip}`;
+async function recordFailedSentiment(kv, identity, ip, ownerHash, sentiment) {
+  const key = `fail:${identity}`;
   const current = await getJson(kv, key, { count: 0 });
-  const next = { count: Number(current.count || 0) + 1, lastFailedAt: nowIso(), lastSentiment: sentiment };
+  const next = { count: Number(current.count || 0) + 1, lastFailedAt: nowIso(), lastSentiment: sentiment, ip, ownerHash };
   await putJson(kv, key, next, { expirationTtl: 60 * 60 });
   if (next.count >= MAX_FAILED_SENTIMENT_COUNT) {
     const blockedUntil = addMinutes(new Date(), BLOCK_MINUTES);
-    const block = { ip, maskedIp: maskIp(ip), reason: "감정 검사 5회 미통과", failCount: next.count, blockedAt: nowIso(), blockedUntil, blockMinutes: BLOCK_MINUTES, lastSentiment: sentiment };
-    await putJson(kv, `block:${ip}`, block, { expirationTtl: BLOCK_MINUTES * 60 + 3600 });
-    await addToIndex(kv, BLOCKS_INDEX_KEY, ip);
+    const block = { blockKey: identity, identityType: ownerHash ? "device" : "ip", ip, maskedIp: maskIp(ip), ownerHash, deviceId: shortDevice(ownerHash), reason: "감정 검사 5회 미통과", failCount: next.count, blockedAt: nowIso(), blockedUntil, blockMinutes: BLOCK_MINUTES, lastSentiment: sentiment };
+    await putJson(kv, `block:${identity}`, block, { expirationTtl: BLOCK_MINUTES * 60 + 3600 });
+    await addToIndex(kv, BLOCKS_INDEX_KEY, identity);
     return block;
   }
   return null;
@@ -213,7 +236,7 @@ function blockConfigs(setting, label) {
   return configs;
 }
 
-async function applyPoliticianBlockSetting(kv, ip, hit, label, sentiment) {
+async function applyPoliticianBlockSetting(kv, identity, ip, ownerHash, hit, label, sentiment) {
   const ruleId = normalizeRuleId(hit);
   if (!ruleId) return null;
   const setting = await getJson(kv, `politician-block:${ruleId}`, null);
@@ -221,9 +244,9 @@ async function applyPoliticianBlockSetting(kv, ip, hit, label, sentiment) {
   if (!configs.length) return null;
   const results = [];
   for (const config of configs) {
-    const key = `politician-count:${ip}:${ruleId}:${config.scope}`;
+    const key = `politician-count:${identity}:${ruleId}:${config.scope}`;
     const current = await getJson(kv, key, { count: 0 });
-    const next = { count: Number(current.count || 0) + 1, label, updatedAt: nowIso(), target: hit.name };
+    const next = { count: Number(current.count || 0) + 1, label, updatedAt: nowIso(), target: hit.name, ip, ownerHash };
     await putJson(kv, key, next, { expirationTtl: 60 * 60 });
     results.push({ config, count: next.count, key });
   }
@@ -231,9 +254,9 @@ async function applyPoliticianBlockSetting(kv, ip, hit, label, sentiment) {
   if (!reached) return { blocked: false, count: Math.max(...results.map(r => r.count)), configs };
   const minutes = Math.max(1, Math.min(10080, Number(reached.config.minutes || 40)));
   const blockedUntil = addMinutes(new Date(), minutes);
-  const block = { ip, maskedIp: maskIp(ip), reason: `정치인 규칙 ${normalizeRuleName(hit)} ${reached.config.scope} ${reached.count}회`, failCount: reached.count, blockedAt: nowIso(), blockedUntil, blockMinutes: minutes, politicianRuleId: ruleId, politicianName: hit.name, politicianScope: reached.config.scope, lastSentiment: sentiment };
-  await putJson(kv, `block:${ip}`, block, { expirationTtl: minutes * 60 + 3600 });
-  await addToIndex(kv, BLOCKS_INDEX_KEY, ip);
+  const block = { blockKey: identity, identityType: ownerHash ? "device" : "ip", ip, maskedIp: maskIp(ip), ownerHash, deviceId: shortDevice(ownerHash), reason: `정치인 규칙 ${normalizeRuleName(hit)} ${reached.config.scope} ${reached.count}회`, failCount: reached.count, blockedAt: nowIso(), blockedUntil, blockMinutes: minutes, politicianRuleId: ruleId, politicianName: hit.name, politicianScope: reached.config.scope, lastSentiment: sentiment };
+  await putJson(kv, `block:${identity}`, block, { expirationTtl: minutes * 60 + 3600 });
+  await addToIndex(kv, BLOCKS_INDEX_KEY, identity);
   for (const r of results) await kv.delete(r.key);
   return { blocked: true, count: reached.count, config: reached.config, block };
 }
@@ -251,16 +274,18 @@ export async function onRequestPost({ request, env }) {
   try {
     const kv = getKV(env);
     const ip = getClientIp(request);
-    const activeBlock = await getActiveBlock(kv, ip);
-    if (activeBlock) return json({ error: blockLimitMessage(activeBlock.blockMinutes || remainingMinutes(activeBlock.blockedUntil), activeBlock.blockedUntil), blocked: true, blockedUntil: activeBlock.blockedUntil }, 429);
-
     const data = await readJson(request);
     const title = cleanText(data.title, 80);
     const body = cleanText(data.body, 1200);
     const category = cleanText(data.category || "기타", 30);
     const ownerToken = cleanText(data.ownerToken, 200);
-    const fullText = `${title}\n${body}`;
+    const ownerHash = await ownerHashFromToken(ownerToken);
+    const identity = identityKey(ownerHash, ip);
 
+    const activeBlock = await getActiveBlock(kv, identity, ip);
+    if (activeBlock) return json({ error: blockLimitMessage(activeBlock.blockMinutes || remainingMinutes(activeBlock.blockedUntil), activeBlock.blockedUntil), blocked: true, blockedUntil: activeBlock.blockedUntil }, 429);
+
+    const fullText = `${title}\n${body}`;
     if (!ownerToken) return json({ error: "기기 식별 토큰이 없습니다. 페이지를 새로고침해 주세요." }, 400);
     if (title.length < 2) return json({ error: "제목은 2자 이상 입력해 주세요." }, 400);
     if (body.length < 10) return json({ error: "내용은 10자 이상 입력해 주세요." }, 400);
@@ -272,7 +297,7 @@ export async function onRequestPost({ request, env }) {
       const sentiment = await analyzeSentiment(fullText, env);
       const label = sentiment?.label === "positive" || sentiment?.label === "negative" ? sentiment.label : "neutral";
       const message = customHit ? messageForPoliticianRule(customHit, label) : defaultPoliticianMessage(politicianHit, label);
-      const blockResult = await applyPoliticianBlockSetting(kv, ip, politicianHit, label, sentiment);
+      const blockResult = await applyPoliticianBlockSetting(kv, identity, ip, ownerHash, politicianHit, label, sentiment);
       if (blockResult?.blocked) return json({ error: blockLimitMessage(blockResult.config.minutes, blockResult.block.blockedUntil), blocked: true, blockType: "politician", target: politicianHit.name, sentiment, sentimentLabel: label, blockedUntil: blockResult.block.blockedUntil, consecutiveCount: blockResult.count }, 429);
       return json({ error: message, blocked: true, blockType: "politician", target: politicianHit.name, sentiment, sentimentLabel: label, editableRule: Boolean(customHit), consecutiveCount: blockResult?.count || 0, blockThreshold: blockResult?.configs?.map(c => c.count).join(",") || 0 }, 422);
     }
@@ -281,25 +306,24 @@ export async function onRequestPost({ request, env }) {
     if (politicalKind) return json({ error: politicalMessage(politicalKind), blocked: true, blockType: "political", politicalKind }, 422);
 
     const maxByIp = await maxPostsPerIp(kv);
-    const ipPostCount = await countPostsByIp(kv, ip);
-    if (ipPostCount >= maxByIp) {
-      return json({ error: `IP당 글은 최대 ${maxByIp}개까지 등록할 수 있습니다. 기존 글을 수정하거나 삭제해 주세요.`, maxPostsPerIp: maxByIp, ipPostCount }, 409);
+    const identityPostCount = await countPostsByIdentity(kv, ownerHash, ip);
+    if (identityPostCount >= maxByIp) {
+      return json({ error: `같은 기기에서는 글을 최대 ${maxByIp}개까지 등록할 수 있습니다. 기존 글을 수정하거나 삭제해 주세요.`, maxPostsPerIp: maxByIp, identityPostCount, deviceId: shortDevice(ownerHash), ip }, 409);
     }
 
     const sentiment = await analyzeSentiment(fullText, env);
     if (!PASS_SENTIMENT_LABELS.includes(sentiment.label)) {
-      const newBlock = await recordFailedSentiment(kv, ip, sentiment);
+      const newBlock = await recordFailedSentiment(kv, identity, ip, ownerHash, sentiment);
       if (newBlock) return json({ error: blockLimitMessage(BLOCK_MINUTES, newBlock.blockedUntil), blocked: true, blockedUntil: newBlock.blockedUntil, sentiment }, 429);
       return json({ error: sentimentMessage(title, body, sentiment), sentiment, blockType: sentiment.label === "positive" ? "positive" : "neutral" }, 422);
     }
 
     const id = randomId("post");
-    const ownerHash = await sha256(ownerToken);
-    const post = { id, title, body, category, ownerHash, ip, maskedIp: maskIp(ip), sentiment, createdAt: nowIso(), updatedAt: nowIso(), featured: false };
+    const post = { id, title, body, category, ownerHash, deviceId: shortDevice(ownerHash), ip, maskedIp: maskIp(ip), sentiment, createdAt: nowIso(), updatedAt: nowIso(), featured: false };
     await putJson(kv, `post:${id}`, post);
     await addToIndex(kv, POSTS_INDEX_KEY, id);
-    await kv.put(`ip-post:${ip}`, id);
-    await kv.delete(`fail:${ip}`);
+    await kv.put(`device-post:${identity}`, id);
+    await kv.delete(`fail:${identity}`);
     return json({ ok: true, post: await publicPost(post, ownerHash, false) }, 201);
   } catch (error) {
     return json({ error: error.message || "등록하지 못했습니다." }, 500);
