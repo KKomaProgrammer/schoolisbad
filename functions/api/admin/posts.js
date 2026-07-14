@@ -16,7 +16,12 @@ async function readPost(kv, id) {
   return await getJson(kv, `post:${id}`, null);
 }
 
+function shortDevice(ownerHash) {
+  return ownerHash ? String(ownerHash).slice(0, 12) : "";
+}
+
 function adminPost(post) {
+  const ownerHash = post.ownerHash || "";
   return {
     id: post.id,
     title: post.title,
@@ -29,7 +34,8 @@ function adminPost(post) {
     canEdit: true,
     ip: post.ip || "",
     maskedIp: post.maskedIp || maskIp(post.ip || ""),
-    ownerHash: post.ownerHash || "",
+    ownerHash,
+    deviceId: post.deviceId || shortDevice(ownerHash),
   };
 }
 
