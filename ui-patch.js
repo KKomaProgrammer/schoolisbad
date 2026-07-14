@@ -6,7 +6,8 @@
 
   const staleBlockKey = "schoolisbad_blocked_until";
   const adminPostsById = new Map();
-  const notesByIp = new Map();
+  const notesByKey = new Map();
+  const blocks = [];
   const originalFetch = window.fetch.bind(window);
 
   function clearStaleBlock() {
@@ -35,13 +36,40 @@
     try { return CSS.escape(String(value)); } catch { return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&"); }
   }
 
-  function exactIp(post) {
-    return String(post?.ip || "").trim();
+  function exactIp(item) {
+    return String(item?.ip || "").trim();
   }
 
-  function deviceLabel(post) {
-    const id = String(post?.deviceId || post?.ownerHash || "").trim();
+  function ownerHashOf(item) {
+    return String(item?.ownerHash || "").trim();
+  }
+
+  function deviceLabel(item) {
+    const id = String(item?.deviceId || item?.ownerHash || "").trim();
     return id ? id.slice(0, 12) : "";
+  }
+
+  function noteKeyOf(item) {
+    const key = String(item?.key || item?.noteKey || item?.deviceKey || "").trim();
+    if (key) return key;
+    const hash = ownerHashOf(item);
+    if (hash) return `device:${hash}`;
+    const ip = exactIp(item);
+    return ip ? `ip:${ip}` : "";
+  }
+
+  function noteIdentity(item) {
+    const ip = exactIp(item);
+    const ownerHash = ownerHashOf(item);
+    const deviceId = deviceLabel(item);
+    return { key: noteKeyOf(item), ip, ownerHash, deviceId };
+  }
+
+  function noteTitle(identity) {
+    const parts = [];
+    if (identity.ip) parts.push(`IP ${identity.ip}`);
+    if (identity.deviceId) parts.push(`기기 ${identity.deviceId}`);
+    return parts.join(" · ") || identity.key;
   }
 
   function injectStyle() {
@@ -50,8 +78,9 @@
     style.id = "schoolisbad-ui-patch-style";
     style.textContent = `
       .admin-ip-chip { display: inline-block; margin-top: 8px; padding: 4px 7px; border: 2px solid #11100f; background: #fffaf0; color: #7f0d0d; font-size: 12px; font-weight: 950; }
-      .admin-user-note { margin-top: 8px; display: grid; gap: 6px; max-width: 420px; border: 2px solid #11100f; background: #fffaf0; padding: 8px; box-shadow: 3px 3px 0 #11100f; }
+      .admin-user-note { margin-top: 8px; display: grid; gap: 6px; max-width: 460px; border: 2px solid #11100f; background: #fffaf0; padding: 8px; box-shadow: 3px 3px 0 #11100f; }
       .admin-user-note-label { display: inline-block; width: fit-content; padding: 3px 7px; border: 2px solid #11100f; background: #ffbd2e; color: #11100f; font-size: 12px; font-weight: 950; box-shadow: 2px 2px 0 #11100f; }
+      .admin-user-note-id { color: #7f0d0d; font-size: 12px; line-height: 1.45; font-weight: 900; word-break: break-all; }
       .admin-user-note-text { white-space: pre-wrap; word-break: break-word; color: #352a22; font-size: 13px; line-height: 1.55; font-weight: 750; }
       .admin-user-note-form { display: grid; gap: 6px; margin-top: 8px; }
       .admin-user-note-form[hidden] { display: none !important; }
@@ -63,7 +92,7 @@
       .admin-note-list { display: grid; gap: 10px; margin-top: 12px; position: relative; z-index: 1; }
       .admin-note-item { border: 2px solid #11100f; background: #fffaf0; padding: 10px; box-shadow: 3px 3px 0 #11100f; }
       .admin-note-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-      .admin-note-head b { color: #7f0d0d; }
+      .admin-note-head b { color: #7f0d0d; word-break: break-all; }
       .admin-note-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     `;
     document.head.appendChild(style);
@@ -89,9 +118,17 @@
     }
   }
 
+  function upsertBlocks(nextBlocks) {
+    blocks.length = 0;
+    for (const block of nextBlocks || []) blocks.push(block);
+  }
+
   function upsertNotes(notes) {
-    notesByIp.clear();
-    for (const item of notes || []) if (item?.ip) notesByIp.set(item.ip, item.note || "");
+    notesByKey.clear();
+    for (const item of notes || []) {
+      const key = noteKeyOf(item);
+      if (key) notesByKey.set(key, item);
+    }
   }
 
   if (location.pathname.startsWith("/admin")) {
@@ -110,6 +147,12 @@
         response.clone().json().then((data) => {
           upsertPosts(data.posts || [], false);
           loadAdminPostsIfNeeded(true);
+          schedule();
+        }).catch(() => {});
+      }
+      if (url.includes("/api/admin/blocks") && response.ok) {
+        response.clone().json().then((data) => {
+          upsertBlocks(data.blocks || []);
           schedule();
         }).catch(() => {});
       }
@@ -155,11 +198,11 @@
     }
   }
 
-  async function saveNote(ip, note) {
+  async function saveNote(identity, note) {
     const res = await originalFetch("/api/admin/user-notes", {
       method: "POST",
       headers: authHeaders({ "content-type": "application/json; charset=utf-8" }),
-      body: JSON.stringify({ ip, note }),
+      body: JSON.stringify({ key: identity.key, noteKey: identity.key, ip: identity.ip, ownerHash: identity.ownerHash, deviceId: identity.deviceId, note }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "메모 저장 실패");
@@ -212,14 +255,19 @@
     const save = event.target.closest?.("[data-ui-action='save-user-note']");
     if (!save) return;
     event.preventDefault();
-    const ip = save.dataset.ip || "";
+    const identity = {
+      key: save.dataset.noteKey || "",
+      ip: save.dataset.ip || "",
+      ownerHash: save.dataset.ownerHash || "",
+      deviceId: save.dataset.deviceId || "",
+    };
     const wrap = save.closest(".admin-user-note-form");
     const textarea = wrap?.querySelector("textarea");
-    if (!ip || !textarea) return;
+    if (!identity.key || !textarea) return;
     save.disabled = true;
     save.textContent = "저장 중";
     try {
-      await saveNote(ip, textarea.value);
+      await saveNote(identity, textarea.value);
       save.textContent = "저장됨";
       setTimeout(() => location.reload(), 350);
     } catch (error) {
@@ -229,19 +277,25 @@
     }
   }, true);
 
-  function noteHtml(ip) {
-    const text = notesByIp.get(ip) || "";
+  function noteHtml(identityInput) {
+    const identity = noteIdentity(identityInput);
+    if (!identity.key) return "";
+    const saved = notesByKey.get(identity.key) || {};
+    const text = saved.note || "";
     const hasNote = Boolean(String(text).trim());
+    const title = noteTitle(identity);
     return `
-      <div class="admin-user-note" data-note-ip="${escapeHtml(ip)}">
+      <div class="admin-user-note" data-note-key="${escapeHtml(identity.key)}">
         <span class="admin-user-note-label">관리자 메모</span>
+        <div class="admin-user-note-id">${escapeHtml(title)}</div>
+        ${identity.ownerHash ? `<div class="admin-user-note-id">HASH ${escapeHtml(identity.ownerHash)}</div>` : ""}
         ${hasNote ? `<div class="admin-user-note-text">${escapeHtml(text)}</div>` : `<div class="help">저장된 메모 없음</div>`}
         <button type="button" class="btn secondary small admin-user-note-toggle" data-ui-action="toggle-user-note" data-has-note="${hasNote ? "1" : "0"}">${hasNote ? "메모 수정" : "메모 추가"}</button>
         <div class="admin-user-note-form" hidden>
-          <textarea placeholder="이 IP 사용자에 대한 관리자 메모" maxlength="1000">${escapeHtml(text)}</textarea>
+          <textarea placeholder="이 기기/HASH 사용자에 대한 관리자 메모" maxlength="1000">${escapeHtml(text)}</textarea>
           <div class="note-actions">
-            <button type="button" class="btn secondary small" data-ui-action="save-user-note" data-ip="${escapeHtml(ip)}">메모 저장</button>
-            <button type="button" class="btn secondary small" data-ui-action="save-user-note" data-ip="${escapeHtml(ip)}" onclick="this.closest('.admin-user-note-form').querySelector('textarea').value=''">메모 삭제</button>
+            <button type="button" class="btn secondary small" data-ui-action="save-user-note" data-note-key="${escapeHtml(identity.key)}" data-ip="${escapeHtml(identity.ip)}" data-owner-hash="${escapeHtml(identity.ownerHash)}" data-device-id="${escapeHtml(identity.deviceId)}">메모 저장</button>
+            <button type="button" class="btn secondary small" data-ui-action="save-user-note" data-note-key="${escapeHtml(identity.key)}" data-ip="${escapeHtml(identity.ip)}" data-owner-hash="${escapeHtml(identity.ownerHash)}" data-device-id="${escapeHtml(identity.deviceId)}" onclick="this.closest('.admin-user-note-form').querySelector('textarea').value=''">메모 삭제</button>
           </div>
         </div>
       </div>
@@ -256,19 +310,27 @@
       card = document.createElement("article");
       card.className = "admin-card";
       card.id = "adminUserNotesCard";
-      card.innerHTML = `<div class="section-head"><h2>사용자 메모 모음</h2><p>글 작성 IP와 차단 IP에 남긴 관리자 메모</p></div><div class="admin-note-list"></div>`;
+      card.innerHTML = `<div class="section-head"><h2>사용자 메모 모음</h2><p>같은 IP라도 기기 HASH별로 분리된 관리자 메모</p></div><div class="admin-note-list"></div>`;
       const blockCard = [...layout.querySelectorAll("article.admin-card")].find((item) => item.textContent.includes("IP 차단 리스트"));
       if (blockCard?.nextSibling) layout.insertBefore(card, blockCard.nextSibling); else layout.appendChild(card);
     }
     const list = card.querySelector(".admin-note-list");
-    const items = [...notesByIp.entries()].filter(([, text]) => String(text || "").trim());
+    const items = [...notesByKey.values()].filter((item) => String(item?.note || "").trim());
     if (!items.length) { list.innerHTML = `<div class="empty">저장된 사용자 메모가 없습니다.</div>`; return; }
-    list.innerHTML = items.map(([ip, text]) => `
-      <div class="admin-note-item">
-        <div class="admin-note-head"><b>${escapeHtml(ip)}</b><div class="admin-note-actions"><button type="button" class="btn danger small" data-ui-action="block-ip" data-ip="${escapeHtml(ip)}">IP 차단</button></div></div>
-        <div class="admin-user-note-text">${escapeHtml(text)}</div>
-      </div>
-    `).join("");
+    list.innerHTML = items.map((item) => {
+      const identity = noteIdentity(item);
+      const title = noteTitle(identity);
+      return `
+        <div class="admin-note-item">
+          <div class="admin-note-head">
+            <b>${escapeHtml(title)}</b>
+            <div class="admin-note-actions">${identity.ip ? `<button type="button" class="btn danger small" data-ui-action="block-ip" data-ip="${escapeHtml(identity.ip)}">IP 차단</button>` : ""}</div>
+          </div>
+          ${identity.ownerHash ? `<div class="admin-user-note-id">HASH ${escapeHtml(identity.ownerHash)}</div>` : ""}
+          <div class="admin-user-note-text">${escapeHtml(item.note)}</div>
+        </div>
+      `;
+    }).join("");
   }
 
   function getPostIdFromRow(row) {
@@ -283,6 +345,7 @@
       const actions = row.querySelector(".admin-row-actions");
       const titleCell = row.children[1];
       const ip = exactIp(post);
+      const identity = noteIdentity(post);
       if (!ip) {
         if (actions && !actions.querySelector("[data-ui-action='block-ip']") && !actions.querySelector(".admin-ip-missing")) {
           const miss = document.createElement("span");
@@ -301,10 +364,9 @@
           chip.className = "admin-ip-chip";
           titleCell.appendChild(chip);
         }
-        const dev = deviceLabel(post);
-        chip.textContent = `IP ${ip}${dev ? ` · 기기 ${dev}` : ""}`;
+        chip.textContent = `IP ${ip}${identity.deviceId ? ` · 기기 ${identity.deviceId}` : ""}`;
       }
-      if (titleCell && !titleCell.querySelector(`[data-note-ip='${cssEscape(ip)}']`)) titleCell.insertAdjacentHTML("beforeend", noteHtml(ip));
+      if (titleCell && identity.key && !titleCell.querySelector(`[data-note-key='${cssEscape(identity.key)}']`)) titleCell.insertAdjacentHTML("beforeend", noteHtml(identity));
       if (actions && !actions.querySelector(`[data-ui-action='block-ip'][data-ip='${cssEscape(ip)}']`)) {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -320,12 +382,15 @@
   function enhanceBlockRows(layout) {
     const blockCard = [...layout.querySelectorAll("article.admin-card")].find((card) => card.textContent.includes("IP 차단 리스트"));
     if (!blockCard) return;
-    for (const row of blockCard.querySelectorAll("tbody tr")) {
-      const ip = row.querySelector("td b")?.textContent?.trim() || "";
-      if (!ip || ip.includes("차단된 IP 없음")) continue;
+    const rows = [...blockCard.querySelectorAll("tbody tr")];
+    rows.forEach((row, index) => {
+      const fallbackIp = row.querySelector("td b")?.textContent?.trim() || "";
+      if (!fallbackIp || fallbackIp.includes("차단된 IP 없음")) return;
+      const block = blocks[index] || { ip: fallbackIp };
+      const identity = noteIdentity(block);
       const reasonCell = row.children[1];
-      if (reasonCell && !reasonCell.querySelector(`[data-note-ip='${cssEscape(ip)}']`)) reasonCell.insertAdjacentHTML("beforeend", noteHtml(ip));
-    }
+      if (reasonCell && identity.key && !reasonCell.querySelector(`[data-note-key='${cssEscape(identity.key)}']`)) reasonCell.insertAdjacentHTML("beforeend", noteHtml(identity));
+    });
   }
 
   function enhanceAdmin() {
