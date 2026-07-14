@@ -35,18 +35,27 @@
       .replaceAll("'", "&#039;");
   }
 
+  function cssEscape(value) {
+    try { return CSS.escape(String(value)); } catch { return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&"); }
+  }
+
   function injectStyle() {
     if (document.querySelector("#schoolisbad-ui-patch-style")) return;
     const style = document.createElement("style");
     style.id = "schoolisbad-ui-patch-style";
     style.textContent = `
       .admin-ip-chip { display: inline-block; margin-top: 8px; padding: 4px 7px; border: 2px solid #11100f; background: #fffaf0; color: #7f0d0d; font-size: 12px; font-weight: 950; }
-      .admin-user-note { margin-top: 8px; display: grid; gap: 6px; max-width: 360px; }
+      .admin-user-note { margin-top: 8px; display: grid; gap: 6px; max-width: 420px; border: 2px solid #11100f; background: #fffaf0; padding: 8px; box-shadow: 3px 3px 0 #11100f; }
       .admin-user-note-label { display: inline-block; width: fit-content; padding: 3px 7px; border: 2px solid #11100f; background: #ffbd2e; color: #11100f; font-size: 12px; font-weight: 950; box-shadow: 2px 2px 0 #11100f; }
       .admin-user-note-text { white-space: pre-wrap; word-break: break-word; color: #352a22; font-size: 13px; line-height: 1.55; font-weight: 750; }
       .admin-user-note-form { display: grid; gap: 6px; margin-top: 8px; }
       .admin-user-note-form textarea { min-height: 58px; resize: vertical; font-size: 13px; line-height: 1.45; padding: 8px 9px; }
       .admin-user-note-form .note-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+      #adminUserNotesCard { position: relative; overflow: hidden; background: linear-gradient(135deg,#fffaf0,#fff3d9); border: 3px solid #11100f; box-shadow: 7px 7px 0 #11100f; }
+      #adminUserNotesCard::before { content: "MEMO"; position: absolute; right: -10px; top: 12px; transform: rotate(14deg); font-weight: 950; font-size: 42px; color: rgba(127,13,13,.08); pointer-events: none; }
+      .admin-note-list { display: grid; gap: 10px; margin-top: 12px; position: relative; z-index: 1; }
+      .admin-note-item { border: 2px solid #11100f; background: #fffaf0; padding: 10px; box-shadow: 3px 3px 0 #11100f; }
+      .admin-note-item b { color: #7f0d0d; }
     `;
     document.head.appendChild(style);
   }
@@ -72,7 +81,6 @@
   if (location.pathname.startsWith("/admin")) {
     window.fetch = async (input, init = {}) => {
       const url = typeof input === "string" ? input : input && input.url ? input.url : "";
-      let nextInput = input;
       let nextInit = init;
 
       if (url.includes("/api/posts")) {
@@ -83,7 +91,7 @@
         nextInit = { ...init, headers };
       }
 
-      const response = await originalFetch(nextInput, nextInit);
+      const response = await originalFetch(input, nextInit);
 
       if (url.includes("/api/posts") && response.ok) {
         response.clone().json().then((data) => {
@@ -155,6 +163,7 @@
     if (!res.ok) throw new Error(data.error || "메모 저장 실패");
     upsertNotes(data.notes || []);
     notesLoaded = true;
+    renderNoteSummary();
     schedule();
   }
 
@@ -165,6 +174,7 @@
     event.preventDefault();
     const ip = blockButton.dataset.ip || "";
     if (!ip) return alert("차단할 IP 정보가 없습니다. 새로고침 후 다시 시도해 주세요.");
+    if (!confirm(`${ip} 를 차단할까요?`)) return;
 
     blockButton.disabled = true;
     blockButton.textContent = "차단 중";
@@ -199,7 +209,7 @@
     try {
       await saveNote(ip, textarea.value);
       save.textContent = "저장됨";
-      setTimeout(() => { save.disabled = false; save.textContent = "메모 저장"; }, 800);
+      setTimeout(() => location.reload(), 350);
     } catch (error) {
       save.disabled = false;
       save.textContent = "메모 저장";
@@ -224,10 +234,38 @@
     `;
   }
 
+  function renderNoteSummary() {
+    const layout = document.querySelector(".admin-layout");
+    if (!layout) return;
+    let card = document.querySelector("#adminUserNotesCard");
+    if (!card) {
+      card = document.createElement("article");
+      card.className = "admin-card";
+      card.id = "adminUserNotesCard";
+      card.innerHTML = `
+        <div class="section-head"><h2>사용자 메모 모음</h2><p>글 작성 IP와 차단 IP에 남긴 관리자 메모</p></div>
+        <div class="admin-note-list"></div>
+      `;
+      const blockCard = [...layout.querySelectorAll("article.admin-card")].find((item) => item.textContent.includes("IP 차단 리스트"));
+      if (blockCard?.nextSibling) layout.insertBefore(card, blockCard.nextSibling);
+      else layout.appendChild(card);
+    }
+    const list = card.querySelector(".admin-note-list");
+    const items = [...notesByIp.entries()].filter(([, text]) => String(text || "").trim());
+    if (!items.length) {
+      list.innerHTML = `<div class="empty">저장된 사용자 메모가 없습니다.</div>`;
+      return;
+    }
+    list.innerHTML = items.map(([ip, text]) => `<div class="admin-note-item"><b>${escapeHtml(ip)}</b><div class="admin-user-note-text">${escapeHtml(text)}</div></div>`).join("");
+  }
+
+  function getPostIdFromRow(row) {
+    return row.querySelector("[data-action='feature'][data-id]")?.dataset.id || row.querySelector("[data-action='admin-delete'][data-id]")?.dataset.id || row.querySelector("[data-id]")?.dataset.id || "";
+  }
+
   function enhancePostRows(layout) {
     for (const row of layout.querySelectorAll("tbody tr")) {
-      const idButton = row.querySelector("[data-id]");
-      const postId = idButton?.dataset?.id;
+      const postId = getPostIdFromRow(row);
       if (!postId) continue;
       const post = adminPostsById.get(postId);
       const actions = row.querySelector(".admin-row-actions");
@@ -240,6 +278,7 @@
           miss.textContent = "IP 로딩 중";
           actions.appendChild(miss);
         }
+        loadAdminPostsIfNeeded(true);
         continue;
       }
 
@@ -252,11 +291,11 @@
         titleCell.appendChild(chip);
       }
 
-      if (titleCell && !titleCell.querySelector(`[data-note-ip='${CSS.escape(post.ip)}']`)) {
+      if (titleCell && !titleCell.querySelector(`[data-note-ip='${cssEscape(post.ip)}']`)) {
         titleCell.insertAdjacentHTML("beforeend", noteHtml(post.ip));
       }
 
-      if (actions && !actions.querySelector("[data-ui-action='block-ip']")) {
+      if (actions && !actions.querySelector(`[data-ui-action='block-ip'][data-ip='${cssEscape(post.ip)}']`)) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn danger small";
@@ -275,7 +314,7 @@
       const ip = row.querySelector("td b")?.textContent?.trim() || "";
       if (!ip || ip.includes("차단된 IP 없음")) continue;
       const reasonCell = row.children[1];
-      if (reasonCell && !reasonCell.querySelector(`[data-note-ip='${CSS.escape(ip)}']`)) {
+      if (reasonCell && !reasonCell.querySelector(`[data-note-ip='${cssEscape(ip)}']`)) {
         reasonCell.insertAdjacentHTML("beforeend", noteHtml(ip));
       }
     }
@@ -293,10 +332,11 @@
       layout.insertBefore(blockCard, postCard);
     }
 
-    if (!adminPostsById.size) loadAdminPostsIfNeeded();
+    if (!adminPostsById.size) loadAdminPostsIfNeeded(true);
     loadNotes();
     enhancePostRows(layout);
     enhanceBlockRows(layout);
+    renderNoteSummary();
   }
 
   function apply() {
@@ -315,5 +355,6 @@
   }
 
   schedule();
+  setInterval(() => loadAdminPostsIfNeeded(true), 2500);
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
 })();
